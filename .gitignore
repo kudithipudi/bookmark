@@ -1,43 +1,14 @@
-# Environment & secrets
-.env
-.env.*
-!.env.example
-
-# Python
+venv/
 __pycache__/
 *.pyc
-*.pyo
-*.py[cod]
-*$py.class
-venv/
-.venv/
-env/
-ENV/
-*.egg-info/
-*.egg
-build/
-dist/
-
-# SQLite databases
-*.db
-*.sqlite
-*.sqlite3
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
+*.sock
+data/
 *.log
-logs/
-
-# Uploads/generated
-uploads/
-static/images/generated/
+.env
+htmlcov/
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+tailwindcss
+tailwindcss-cli

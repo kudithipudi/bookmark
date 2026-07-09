@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -8,22 +9,66 @@ from app.database import init_db, get_db
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app.scraper import fetch_metadata
 from app.ai import generate_tags
+from app.logging_config import setup_logging, get_logger
 from collections import Counter
+
+logger = setup_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Starting up: initializing database")
     await init_db()
     app.state.db = await get_db()
+    logger.info("Startup complete")
     yield
+    logger.info("Shutting down")
     if hasattr(app.state, "db"):
         await app.state.db.close()
 
 
 app = FastAPI(lifespan=lifespan)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    logger.info(
+        "%s %s -> %d (%.1fms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Client/handled errors (404, 409, 401, ...) — log at warning, not as crashes.
+    logger.warning(
+        "%s %s -> %d: %s",
+        request.method,
+        request.url.path,
+        exc.status_code,
+        exc.detail,
+    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception(
+        "Unhandled exception on %s %s", request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=500, content={"detail": "Internal server error"}
+    )
 
 
 @app.get("/")
@@ -71,6 +116,7 @@ async def create_bookmark(request: Request, bookmark: BookmarkCreate):
 
     row = await db.execute("SELECT * FROM bookmarks WHERE id = ?", (cursor.lastrowid,))
     result = await row.fetchone()
+    logger.info("Created bookmark %d: %s", result["id"], bookmark.url)
     return _row_to_dict(result)
 
 
@@ -149,6 +195,7 @@ async def delete_bookmark(request: Request, bookmark_id: int):
 
     await db.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
     await db.commit()
+    logger.info("Deleted bookmark %d", bookmark_id)
     return Response(status_code=204)
 
 

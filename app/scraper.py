@@ -1,18 +1,25 @@
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from app.logging_config import get_logger
+
+logger = get_logger("scraper")
 
 
 async def fetch_metadata(url: str) -> dict:
     result = {"title": None, "description": None, "favicon": None}
 
     if not url.startswith(("http://", "https://")):
+        logger.warning("Skipping metadata fetch for non-http URL: %s", url)
         return result
 
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
+                logger.warning(
+                    "Metadata fetch for %s returned status %d", url, resp.status_code
+                )
                 return result
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -33,7 +40,9 @@ async def fetch_metadata(url: str) -> dict:
             else:
                 result["favicon"] = urljoin(base_url, "/favicon.ico")
 
-    except (httpx.HTTPError, Exception):
-        pass
+    except httpx.HTTPError as exc:
+        logger.warning("HTTP error fetching metadata for %s: %s", url, exc)
+    except Exception as exc:
+        logger.exception("Unexpected error scraping %s: %s", url, exc)
 
     return result

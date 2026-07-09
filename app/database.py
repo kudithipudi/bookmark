@@ -1,7 +1,9 @@
 import aiosqlite
 import os
 
-DATABASE_PATH = os.getenv("DATABASE_PATH", "bookmarks.db")
+# DB_PATH is the standard env var name; DATABASE_PATH is kept as a legacy
+# fallback for existing deployments/configs.
+DATABASE_PATH = os.getenv("DB_PATH") or os.getenv("DATABASE_PATH") or "data/bookmarks.db"
 
 SQL_CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -20,9 +22,13 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 
 async def get_db(db_path: str | None = None) -> aiosqlite.Connection:
     path = db_path or DATABASE_PATH
+    dirname = os.path.dirname(path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     db = await aiosqlite.connect(path)
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA foreign_keys=ON")
     return db
 
 

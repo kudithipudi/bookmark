@@ -2,6 +2,22 @@ import pytest
 from unittest.mock import patch
 
 
+async def test_index_page(client):
+    resp = await client.get("/")
+    assert resp.status_code == 200
+    assert "Bookmarks" in resp.text
+
+
+async def test_update_bookmark_not_found(client):
+    resp = await client.put("/api/bookmarks/99999", json={"title": "x"})
+    assert resp.status_code == 404
+
+
+async def test_delete_bookmark_not_found(client):
+    resp = await client.delete("/api/bookmarks/99999")
+    assert resp.status_code == 404
+
+
 async def test_create_bookmark(client, db):
     resp = await client.post("/api/bookmarks", json={"url": "https://example.com"})
     assert resp.status_code == 201

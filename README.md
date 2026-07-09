@@ -1,99 +1,107 @@
 # Bookmarks
 
-A simple, self-hosted bookmarking web app. Save URLs, auto-fetch metadata, get AI-generated tags, and organize everything with search and tag filtering.
+## What it is
 
-Built with FastAPI, Alpine.js, SQLite, and OpenRouter for AI tagging.
+A simple, self-hosted bookmarking web app. Save URLs, auto-fetch metadata
+(title, description, favicon), get AI-generated tags via OpenRouter, and
+organize everything with search and tag filtering. Served at
+`https://lab.kudithipudi.org/bookmark/`.
 
-## Features
+## Stack
 
-- **Save bookmarks** — paste a URL; title, description, and favicon are scraped automatically
-- **AI auto-tagging** — OpenRouter generates 3-5 tags per bookmark on save
-- **Search** — full-text search across title, URL, description, and tags
-- **Filter by tag** — click any tag to filter; tag sidebar with counts
-- **Edit / Delete** — inline editing of title, description, and tags
-- **Responsive** — card grid adapts from 1 to 3 columns
+| Component | Technology |
+|-----------|-----------|
+| Backend | FastAPI, Python 3.12 |
+| Database | SQLite (aiosqlite, WAL mode) at `data/bookmarks.db` |
+| Frontend | Jinja2, Alpine.js 3.14.8 (pinned CDN + SRI), Tailwind CSS (built with standalone CLI) |
+| Scraping | httpx, BeautifulSoup4 |
+| AI Tagging | OpenRouter (model configurable, default `google/gemini-2.5-flash`) |
+| App Server | gunicorn + uvicorn workers, unix socket `bookmark.sock` |
+| Reverse Proxy | nginx (subpath `/bookmark/`) |
+| Process Manager | systemd (`bookmark.service`) |
 
-## Architecture
+Layout:
 
 ```
 /var/www/bookmark/
 ├── app/
-│   ├── main.py          # FastAPI routes
-│   ├── database.py      # SQLite setup (aiosqlite, WAL mode)
-│   ├── models.py        # Pydantic models
-│   ├── scraper.py       # URL metadata fetcher (httpx + BeautifulSoup)
-│   └── ai.py            # OpenRouter integration for auto-tagging
-├── static/
-│   ├── app.js           # Alpine.js frontend logic
-│   └── style.css        # Minimal custom styles
-├── templates/
-│   └── index.html       # Single-page Jinja2 template
-├── tests/               # pytest test suite
-├── seed.py              # Seeds 30 sample bookmarks
-├── gunicorn.conf.py     # Gunicorn config (unix socket, uvicorn workers)
-└── nginx.conf           # Nginx reverse proxy config
+│   ├── main.py            # FastAPI app + routes
+│   ├── database.py        # SQLite access (aiosqlite, WAL)
+│   ├── models.py          # Pydantic models
+│   ├── scraper.py         # URL metadata fetcher
+│   ├── ai.py              # OpenRouter auto-tagging
+│   ├── logging_config.py  # stdout logging (journald captures it)
+│   └── static/            # app.js, style.css, css/app.css (built Tailwind)
+├── templates/index.html   # single-page UI
+├── data/                  # SQLite db (gitignored, www-data writable)
+├── db/schema.sql          # canonical schema
+├── tests/                 # pytest suite
+├── gunicorn.conf.py
+├── tailwind.config.js
+└── requirements.txt
 ```
 
-## Quick Start
-
-### Prerequisites
-
-- Python 3.12+
-- A virtual environment at `./venv`
-
-### Install
+## Run locally
 
 ```bash
 cd /var/www/bookmark
 source venv/bin/activate
 pip install -r requirements.txt
+uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-### Configure
+Optional: seed 30 sample bookmarks with `python seed.py`.
 
-Create a `.env` file:
+### Tests
 
 ```bash
-# Required for AI auto-tagging (optional — tags will be empty without it)
-OPENROUTER_API_KEY=your-key-here
-
-# SQLite database path (default: bookmarks.db)
-# DATABASE_PATH=/var/www/bookmark/bookmarks.db
+venv/bin/python -m pytest
 ```
 
-### Seed sample data (optional)
+### Rebuilding the Tailwind CSS
+
+The UI uses a committed CSS file built by the Tailwind standalone CLI (no
+Node/CDN at runtime). After changing templates, rebuild:
 
 ```bash
-python seed.py
+# One-time: download the v3.4.17 standalone CLI
+curl -sLo /usr/local/bin/tailwindcss \
+  https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-linux-x64
+chmod +x /usr/local/bin/tailwindcss
+
+cd /var/www/bookmark
+tailwindcss -c tailwind.config.js -i app/static/css/input.css \
+  -o app/static/css/app.css --minify
 ```
 
-Populates the database with 30 bookmarks across tech, finance, tools, learning, and travel categories.
-
-### Run (development)
+## Deploy
 
 ```bash
-uvicorn app.main:app --reload
+sudo systemctl restart bookmark
+systemctl is-active bookmark
+curl -s -o /dev/null -w '%{http_code}' https://lab.kudithipudi.org/bookmark/  # 200
 ```
 
-Open `http://localhost:8000`.
+Logs go to stdout and are captured by journald: `journalctl -u bookmark -f`.
 
-### Run (production)
+## Env vars
 
-The app runs behind Gunicorn (unix socket) + Nginx:
+Set in `/var/www/bookmark/.env` (chmod 600, never committed):
 
-```bash
-# Start via systemd
-sudo systemctl start bookmark
-sudo systemctl enable bookmark
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | (unset) | OpenRouter key for AI auto-tagging; tags are empty without it |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model slug for tagging |
+| `DELETE_PASSWORD` | (unset) | If set, deletes require `X-Delete-Password` header |
+| `DB_PATH` | `data/bookmarks.db` | SQLite database path (legacy alias: `DATABASE_PATH`) |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 
-# Check status
-sudo systemctl status bookmark
-
-# View logs
-sudo journalctl -u bookmark -f
-```
-
-Gunicorn binds to `unix:/var/www/bookmark/gunicorn.sock` with 4 uvicorn workers. Nginx proxies to the socket and serves static files directly.
+Note: the app does **not** set FastAPI's `root_path`. nginx's `/bookmark/`
+location strips the prefix (`rewrite ^/bookmark(/.*)$ $1 break;`) before
+proxying, and templates use relative asset URLs (`static/...`), so the app
+sees clean, unprefixed paths. Setting `root_path` here would double-account
+the prefix inside Starlette's route resolution and break the `/static`
+mount — confirmed while implementing this: it 404s every static asset.
 
 ## API
 
@@ -103,45 +111,5 @@ Gunicorn binds to `unix:/var/www/bookmark/gunicorn.sock` with 4 uvicorn workers.
 | `GET` | `/api/bookmarks` | List bookmarks. Query params: `search`, `tag` |
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
 | `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"title", "description", "tags"}` |
-| `DELETE` | `/api/bookmarks/{id}` | Delete bookmark |
+| `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
 | `GET` | `/api/tags` | List all tags with counts |
-
-## Database
-
-SQLite with WAL mode. Single table:
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | INTEGER | Primary key, autoincrement |
-| `url` | TEXT | Unique, not null |
-| `title` | TEXT | Auto-scraped from page |
-| `description` | TEXT | Auto-scraped from meta tag |
-| `favicon` | TEXT | Auto-scraped favicon URL |
-| `tags` | TEXT | Comma-separated, AI-generated |
-| `created_at` | TIMESTAMP | Auto-set |
-| `updated_at` | TIMESTAMP | Auto-set on update |
-
-## Tests
-
-```bash
-python -m pytest tests/ -v
-```
-
-16 tests across 4 files:
-- `test_api.py` — CRUD, search, tag filtering, duplicate detection
-- `test_scraper.py` — metadata fetching (mocked HTTP)
-- `test_ai.py` — OpenRouter tagging (mocked)
-- `test_integration.py` — end-to-end workflows
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Backend | FastAPI, Python 3.12 |
-| Database | SQLite (aiosqlite) |
-| Frontend | Alpine.js, Tailwind CSS (CDN) |
-| Scraping | httpx, BeautifulSoup4 |
-| AI Tagging | OpenRouter (google/gemini-2.0-flash-001) |
-| App Server | Gunicorn + Uvicorn workers |
-| Reverse Proxy | Nginx |
-| Process Manager | systemd |
