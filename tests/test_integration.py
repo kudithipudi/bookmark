@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
@@ -45,6 +46,26 @@ async def test_add_bookmark_with_scraping_and_tagging(client, db):
     assert data["description"] == "A test page for integration"
     assert "testing" in data["tags"]
     assert "integration" in data["tags"]
+
+
+async def test_create_bookmark_rate_limited(client, db):
+    async def mock_fetch_metadata(url):
+        return {"title": None, "description": None, "favicon": None}
+
+    async def mock_generate_tags(url, title, desc):
+        return []
+
+    with patch("app.main.fetch_metadata", side_effect=mock_fetch_metadata), \
+         patch("app.main.generate_tags", side_effect=mock_generate_tags), \
+         patch.dict(os.environ, {"RATE_LIMIT_PER_MINUTE": "2", "RATE_LIMIT_WINDOW_SECONDS": "60"}):
+        r1 = await client.post("/api/bookmarks", json={"url": "https://rl-1.com"})
+        r2 = await client.post("/api/bookmarks", json={"url": "https://rl-2.com"})
+        r3 = await client.post("/api/bookmarks", json={"url": "https://rl-3.com"})
+
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    assert r3.status_code == 429
+    assert "Too many requests" in r3.json()["detail"]
 
 
 async def test_search_and_filter_workflow(client, db):

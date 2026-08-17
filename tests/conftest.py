@@ -1,7 +1,12 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
-from app.database import get_db, SQL_CREATE_TABLE
+from app.database import (
+    get_db,
+    SQL_CREATE_TABLE,
+    SQL_CREATE_RATE_LIMIT_TABLE,
+    SQL_CREATE_RATE_LIMIT_INDEX,
+)
 import aiosqlite
 
 
@@ -10,6 +15,8 @@ async def db():
     conn = await aiosqlite.connect(":memory:")
     conn.row_factory = aiosqlite.Row
     await conn.execute(SQL_CREATE_TABLE)
+    await conn.execute(SQL_CREATE_RATE_LIMIT_TABLE)
+    await conn.execute(SQL_CREATE_RATE_LIMIT_INDEX)
     await conn.commit()
     yield conn
     await conn.close()

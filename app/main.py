@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from app.database import init_db, get_db
+from app.database import init_db, get_db, check_and_record_rate_limit
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app.scraper import fetch_metadata
 from app.ai import generate_tags
@@ -76,6 +76,18 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+def _client_ip(request: Request) -> str:
+    # Gunicorn is bound to a unix socket behind nginx, so request.client is
+    # frequently empty/wrong — read the proxy headers nginx sets instead.
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else "unknown"
+
+
 def _row_to_dict(row) -> dict:
     return {
         "id": row["id"],
@@ -92,6 +104,21 @@ def _row_to_dict(row) -> dict:
 @app.post("/api/bookmarks", status_code=201)
 async def create_bookmark(request: Request, bookmark: BookmarkCreate):
     db = request.app.state.db
+
+    # Fetches an arbitrary URL and calls the paid OpenRouter API, so cap it
+    # per-IP before doing any of that work.
+    allowed = await check_and_record_rate_limit(
+        db,
+        ip=_client_ip(request),
+        route="create_bookmark",
+        limit=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "20")),
+        window_seconds=int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60")),
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests — please slow down and try again in a minute.",
+        )
 
     # Check for duplicate
     existing = await db.execute("SELECT id FROM bookmarks WHERE url = ?", (bookmark.url,))
