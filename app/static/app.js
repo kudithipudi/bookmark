@@ -13,6 +13,9 @@ document.addEventListener('alpine:init', () => {
         toast: { msg: '', type: 'success' },
 
         async init() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('search')) this.searchQuery = params.get('search');
+            if (params.get('tag')) this.activeTag = params.get('tag');
             await this.loadBookmarks();
             await this.loadTags();
         },
@@ -22,13 +25,23 @@ document.addEventListener('alpine:init', () => {
             const params = new URLSearchParams();
             if (this.searchQuery) params.set('search', this.searchQuery);
             if (this.activeTag) params.set('tag', this.activeTag);
+            this.syncUrl();
             try {
                 const resp = await fetch(`api/bookmarks?${params}`);
                 this.bookmarks = await resp.json();
             } catch (e) {
-                this.showToast('Failed to load bookmarks', 'error');
+                this.showToast('Failed to load bookmarks. Try refreshing.', 'error');
             }
             this.loading = false;
+        },
+
+        syncUrl() {
+            const url = new URL(window.location.href);
+            if (this.searchQuery) url.searchParams.set('search', this.searchQuery);
+            else url.searchParams.delete('search');
+            if (this.activeTag) url.searchParams.set('tag', this.activeTag);
+            else url.searchParams.delete('tag');
+            history.replaceState(null, '', url.toString());
         },
 
         async loadTags() {
