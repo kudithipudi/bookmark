@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from app.config import settings
+
 
 async def test_index_page(client):
     resp = await client.get("/")
@@ -102,14 +104,13 @@ async def test_update_bookmark(client, db):
 
 
 async def test_delete_bookmark(client, db):
-    import os
     await db.execute("INSERT INTO bookmarks (url) VALUES (?)", ("https://delete.com",))
     await db.commit()
     row = await db.execute("SELECT id FROM bookmarks WHERE url = ?", ("https://delete.com",))
     bookmark = await row.fetchone()
 
-    # Without password should be rejected when DELETE_PASSWORD is set
-    with patch.dict(os.environ, {"DELETE_PASSWORD": "secret"}):
+    # Without password should be rejected when delete_password is configured
+    with patch.object(settings, "delete_password", "secret"):
         resp = await client.delete(f"/api/bookmarks/{bookmark['id']}")
         assert resp.status_code == 401
 

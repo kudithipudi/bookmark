@@ -1,7 +1,8 @@
-import os
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import httpx
+
+from app.config import settings
 
 
 async def test_add_bookmark_with_scraping_and_tagging(client, db):
@@ -57,7 +58,8 @@ async def test_create_bookmark_rate_limited(client, db):
 
     with patch("app.main.fetch_metadata", side_effect=mock_fetch_metadata), \
          patch("app.main.generate_tags", side_effect=mock_generate_tags), \
-         patch.dict(os.environ, {"RATE_LIMIT_PER_MINUTE": "2", "RATE_LIMIT_WINDOW_SECONDS": "60"}):
+         patch.object(settings, "rate_limit_per_minute", 2), \
+         patch.object(settings, "rate_limit_window_seconds", 60):
         r1 = await client.post("/api/bookmarks", json={"url": "https://rl-1.com"})
         r2 = await client.post("/api/bookmarks", json={"url": "https://rl-2.com"})
         r3 = await client.post("/api/bookmarks", json={"url": "https://rl-3.com"})

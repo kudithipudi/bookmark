@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 *.sock
 data/
-*.log
+app/logs/*
+!app/logs/.gitkeep
 .env
 htmlcov/
 .pytest_cache/
@@ -16,20 +17,8 @@ tailwindcss-cli
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
 
-# AI assistant / local tooling config (not project code)
-CLAUDE.md
-claude.md
-AGENTS.md
-agents.md
-opencode.json
-opencode.jsonc
-.mcp.json
+# local search-tool ignore list
 .ignore
-.claude/
-.cursor/
-.cursorrules
-.windsurfrules
-.aider*
 
 # OS junk
 .DS_Store

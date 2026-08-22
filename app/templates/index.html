@@ -6,16 +6,16 @@
     <title>Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="static/css/app.css?v=1.0.1">
-    <link rel="stylesheet" href="static/style.css?v=1.0.2">
-    <script src="static/app.js?v=1.0.4"></script>
+    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.1">
+    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.2">
+    <script src="{{ prefix }}/static/app.js?v=1.0.4"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen" x-data="bookmarkApp">
 
-    <a href="#main-content"
+    <a href="#main"
         class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-semibold focus:text-indigo-600 focus:shadow-md focus:ring-2 focus:ring-indigo-500">Skip to content</a>
     <h1 class="sr-only">Bookmarks</h1>
 
@@ -109,7 +109,7 @@
         </aside>
 
         <!-- Main content -->
-        <main class="flex-1 min-w-0" id="main-content" tabindex="-1">
+        <main class="flex-1 min-w-0" id="main" tabindex="-1">
 
             <!-- Mobile tag pills -->
             <div class="lg:hidden mb-4 flex flex-wrap gap-1.5">

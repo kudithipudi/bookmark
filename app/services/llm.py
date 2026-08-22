@@ -1,20 +1,21 @@
+import logging
+
 import httpx
-import os
-from app.logging_config import get_logger
+
+from app.config import settings
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "google/gemini-2.5-flash"
 
-logger = get_logger("ai")
+logger = logging.getLogger(__name__)
 
 
 async def generate_tags(url: str, title: str | None, description: str | None) -> list[str]:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = settings.openrouter_api_key
     if not api_key:
         logger.debug("OPENROUTER_API_KEY not set; skipping AI tagging for %s", url)
         return []
 
-    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    model = settings.openrouter_model
 
     prompt = (
         f"Given this webpage:\nURL: {url}\nTitle: {title or 'N/A'}\n"
@@ -24,7 +25,7 @@ async def generate_tags(url: str, title: str | None, description: str | None) ->
     )
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
             resp = await client.post(
                 OPENROUTER_URL,
                 headers={

@@ -1,13 +1,24 @@
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
-from app.database import (
+from app.db import (
     get_db,
     SQL_CREATE_TABLE,
     SQL_CREATE_RATE_LIMIT_TABLE,
     SQL_CREATE_RATE_LIMIT_INDEX,
 )
+from app.config import settings
 import aiosqlite
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings(monkeypatch):
+    # Settings loads the real .env; never let tests hit OpenRouter or gate
+    # deletes on the production password.
+    monkeypatch.setattr(settings, "openrouter_api_key", None)
+    monkeypatch.setattr(settings, "delete_password", None)
+    monkeypatch.setattr(settings, "rate_limit_per_minute", 20)
+    monkeypatch.setattr(settings, "rate_limit_window_seconds", 60)
 
 
 @pytest_asyncio.fixture

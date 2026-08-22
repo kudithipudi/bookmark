@@ -1,6 +1,6 @@
 """Seed script with ~30 bookmarks covering tech, finance, tools, learning, travel."""
 import asyncio
-from app.database import init_db, get_db
+from app.db import init_db, get_db
 
 SEED_BOOKMARKS = [
     ("https://news.ycombinator.com", "Hacker News", "Social news for programmers", "https://news.ycombinator.com/favicon.ico", "tech,news,programming"),

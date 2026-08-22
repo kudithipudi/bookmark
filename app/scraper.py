@@ -1,9 +1,9 @@
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from app.logging_config import get_logger
+import logging
 
-logger = get_logger("scraper")
+logger = logging.getLogger(__name__)
 
 
 async def fetch_metadata(url: str) -> dict:

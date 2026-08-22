@@ -1,9 +1,8 @@
-import aiosqlite
 import os
 
-# DB_PATH is the standard env var name; DATABASE_PATH is kept as a legacy
-# fallback for existing deployments/configs.
-DATABASE_PATH = os.getenv("DB_PATH") or os.getenv("DATABASE_PATH") or "data/bookmarks.db"
+import aiosqlite
+
+from app.config import settings
 
 SQL_CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -37,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_rate_limit_hits_route_ip_time
 
 
 async def get_db(db_path: str | None = None) -> aiosqlite.Connection:
-    path = db_path or DATABASE_PATH
+    path = db_path or settings.db_path
     dirname = os.path.dirname(path)
     if dirname:
         os.makedirs(dirname, exist_ok=True)

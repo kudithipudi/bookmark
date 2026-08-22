@@ -1,18 +1,22 @@
-import os
+import logging
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from app.database import init_db, get_db, check_and_record_rate_limit
+from app.config import settings
+from app.db import init_db, get_db, check_and_record_rate_limit
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app.scraper import fetch_metadata
-from app.ai import generate_tags
-from app.logging_config import setup_logging, get_logger
+from app.services.llm import generate_tags
 from collections import Counter
 
-logger = setup_logging()
+logging.basicConfig(
+    level=settings.log_level.upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("bookmark")
 
 
 @asynccontextmanager
@@ -30,7 +34,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["prefix"] = settings.root_path
+
+
+@app.get("/health")
+async def health():
+    return JSONResponse(content={"status": "ok"})
 
 
 @app.middleware("http")
@@ -111,8 +121,8 @@ async def create_bookmark(request: Request, bookmark: BookmarkCreate):
         db,
         ip=_client_ip(request),
         route="create_bookmark",
-        limit=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "20")),
-        window_seconds=int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60")),
+        limit=settings.rate_limit_per_minute,
+        window_seconds=settings.rate_limit_window_seconds,
     )
     if not allowed:
         raise HTTPException(
@@ -209,7 +219,7 @@ async def update_bookmark(request: Request, bookmark_id: int, update: BookmarkUp
 
 @app.delete("/api/bookmarks/{bookmark_id}", status_code=204)
 async def delete_bookmark(request: Request, bookmark_id: int):
-    delete_password = os.environ.get("DELETE_PASSWORD")
+    delete_password = settings.delete_password
     if delete_password:
         provided = request.headers.get("X-Delete-Password", "")
         if provided != delete_password:
