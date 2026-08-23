@@ -133,13 +133,15 @@ async def test_delete_bookmark(client, db):
 async def test_get_tags(client, db):
     await db.execute("INSERT INTO bookmarks (url, tags) VALUES (?, ?)", ("https://a.com", "python,web"))
     await db.execute("INSERT INTO bookmarks (url, tags) VALUES (?, ?)", ("https://b.com", "python,api"))
-    await db.execute("INSERT INTO bookmarks (url, tags) VALUES (?, ?)", ("https://c.com", "web"))
+    await db.execute("INSERT INTO bookmarks (url) VALUES (?)", ("https://notags.com",))
     await db.commit()
 
     resp = await client.get("/api/tags")
     assert resp.status_code == 200
     data = resp.json()
-    tags = {t["tag"]: t["count"] for t in data}
+    # total counts bookmarks (sidebar "All bookmarks"), not tag occurrences
+    assert data["total"] == 3
+    tags = {t["tag"]: t["count"] for t in data["tags"]}
     assert tags["python"] == 2
-    assert tags["web"] == 2
+    assert tags["web"] == 1
     assert tags["api"] == 1

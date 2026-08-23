@@ -164,4 +164,4 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
 | `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"title", "description", "tags"}` |
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
-| `GET` | `/api/tags` | List all tags with counts |
+| `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count: `{"total": N, "tags": [...]}` |

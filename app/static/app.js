@@ -2,6 +2,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('bookmarkApp', () => ({
         bookmarks: [],
         tags: [],
+        totalBookmarks: 0,
         newUrl: '',
         searchQuery: '',
         activeTag: '',
@@ -47,8 +48,20 @@ document.addEventListener('alpine:init', () => {
         async loadTags() {
             try {
                 const resp = await fetch('api/tags');
-                this.tags = await resp.json();
+                const data = await resp.json();
+                this.tags = data.tags || [];
+                this.totalBookmarks = data.total || 0;
             } catch (e) {}
+        },
+
+        // Search splits into two visual sections: keyword matches, then
+        // embedding-based recommendations under their own heading.
+        get exactBookmarks() {
+            return this.bookmarks.filter(b => b.match !== 'semantic');
+        },
+
+        get semanticBookmarks() {
+            return this.bookmarks.filter(b => b.match === 'semantic');
         },
 
         async addBookmark() {

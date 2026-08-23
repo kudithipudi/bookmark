@@ -95,7 +95,9 @@ async def test_search_and_filter_workflow(client, db):
 
     # Get all tags
     resp = await client.get("/api/tags")
-    tags = {t["tag"]: t["count"] for t in resp.json()}
+    data = resp.json()
+    assert data["total"] == 3
+    tags = {t["tag"]: t["count"] for t in data["tags"]}
     assert tags["programming"] == 2
     assert tags["cooking"] == 1
 

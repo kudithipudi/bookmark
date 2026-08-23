@@ -324,4 +324,9 @@ async def get_tags(request: Request):
             if tag:
                 counter[tag] += 1
 
-    return [{"tag": tag, "count": count} for tag, count in counter.most_common()]
+    total_cursor = await db.execute("SELECT COUNT(*) FROM bookmarks")
+    total = (await total_cursor.fetchone())[0]
+    return {
+        "total": total,
+        "tags": [{"tag": tag, "count": count} for tag, count in counter.most_common()],
+    }
