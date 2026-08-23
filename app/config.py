@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     openrouter_model: str = "google/gemini-2.5-flash"
     llm_timeout_seconds: float = 15.0
     embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Inside the app dir so it's writable under the systemd sandbox
+    # (ProtectSystem=strict + ReadWritePaths) and shared by both workers.
+    embedding_cache_dir: str = ".cache/fastembed"
     semantic_score_threshold: float = 0.55
     semantic_search_limit: int = 12
     # How long an in-worker vector cache may serve before re-reading the

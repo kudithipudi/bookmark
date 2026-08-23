@@ -144,6 +144,8 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model slug for tagging |
 | `LLM_TIMEOUT_SECONDS` | `15.0` | Timeout for OpenRouter calls |
 | `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model for semantic search |
+| `EMBEDDING_CACHE_DIR` | `.cache/fastembed` | Model download location (gitignored; keep inside the app dir — the systemd sandbox blocks `$HOME/.cache`) |
+| `HF_HOME` | `/var/www/bookmark/.cache/huggingface` | huggingface_hub/xet scratch space; same sandbox rationale, exported to workers via `.env` |
 | `SEMANTIC_SCORE_THRESHOLD` | `0.55` | Minimum cosine similarity to include a semantic match |
 | `SEMANTIC_SEARCH_LIMIT` | `12` | Max semantic matches per search |
 | `DELETE_PASSWORD` | (unset) | If set, deletes require `X-Delete-Password` header |

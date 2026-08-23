@@ -11,6 +11,7 @@ htmlcov/
 *.db
 *.db-shm
 *.db-wal
+.cache/
 tailwindcss
 tailwindcss-cli
 
@@ -20,6 +21,8 @@ graft/
 # local search-tool ignore list
 .ignore
 
-# OS junk
+# OS junk + runtime artifacts
 .DS_Store
 Thumbs.db
+# onnxruntime telemetry sidecar written to cwd by gunicorn workers
+*.ses

@@ -7,6 +7,7 @@ instead of retrying a multi-hundred-MB download on every request.
 """
 import asyncio
 import logging
+import os
 import threading
 
 import numpy as np
@@ -28,8 +29,16 @@ def _get_model():
                 try:
                     from fastembed import TextEmbedding
 
-                    logger.info("Loading embedding model %s", settings.embedding_model)
-                    _model = TextEmbedding(settings.embedding_model)
+                    logger.info(
+                        "Loading embedding model %s (cache: %s)",
+                        settings.embedding_model,
+                        settings.embedding_cache_dir,
+                    )
+                    os.makedirs(settings.embedding_cache_dir, exist_ok=True)
+                    _model = TextEmbedding(
+                        settings.embedding_model,
+                        cache_dir=settings.embedding_cache_dir,
+                    )
                 except Exception as exc:
                     _load_failed = True
                     logger.warning(
