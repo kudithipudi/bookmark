@@ -12,6 +12,7 @@ document.addEventListener('alpine:init', () => {
         editForm: { title: '', description: '', tags: '' },
         deleteModal: { open: false, id: null, password: '', error: '' },
         toast: { msg: '', type: 'success' },
+        tagEdges: { left: false, right: false },
 
         async init() {
             const params = new URLSearchParams(window.location.search);
@@ -19,6 +20,14 @@ document.addEventListener('alpine:init', () => {
             if (params.get('tag')) this.activeTag = params.get('tag');
             await this.loadBookmarks();
             await this.loadTags();
+            // Deep-linked tag: bring its pill into view once rendered.
+            this.$nextTick(() => {
+                this.updateTagEdges();
+                if (this.activeTag) {
+                    const el = this.$refs.tagStrip?.querySelector('[data-active="yes"]');
+                    if (el) this.focusTag(el, 'auto');
+                }
+            });
         },
 
         async loadBookmarks() {
@@ -52,6 +61,35 @@ document.addEventListener('alpine:init', () => {
                 this.tags = data.tags || [];
                 this.totalBookmarks = data.total || 0;
             } catch (e) {}
+            this.$nextTick(() => this.updateTagEdges());
+        },
+
+        // Mobile tag strip: track whether off-screen pills exist on either
+        // side so the fade overlays can hint at hidden content.
+        updateTagEdges() {
+            const el = this.$refs.tagStrip;
+            if (!el) return;
+            this.tagEdges.left = el.scrollLeft > 4;
+            this.tagEdges.right =
+                el.scrollWidth > el.clientWidth + 4 &&
+                el.scrollLeft < el.scrollWidth - el.clientWidth - 4;
+        },
+
+        focusTag(el, behavior = 'smooth') {
+            el?.scrollIntoView({ behavior, inline: 'center', block: 'nearest' });
+            this.$nextTick(() => this.updateTagEdges());
+        },
+
+        pickTag(tag, el) {
+            this.activeTag = tag;
+            this.loadBookmarks();
+            this.focusTag(el);
+        },
+
+        clearTag(el) {
+            this.activeTag = '';
+            this.loadBookmarks();
+            this.focusTag(el);
         },
 
         // Search splits into two visual sections: keyword matches, then

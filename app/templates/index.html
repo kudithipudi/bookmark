@@ -111,17 +111,25 @@
         <!-- Main content -->
         <main class="flex-1 min-w-0" id="main" tabindex="-1">
 
-            <!-- Mobile tag pills -->
-            <div class="lg:hidden mb-4 flex flex-wrap gap-1.5">
-                <button @click="activeTag = ''; loadBookmarks()"
-                    :class="!activeTag ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
-                    class="px-2.5 py-1 rounded-full text-xs font-medium transition">All</button>
-                <template x-for="t in tags" :key="'m-'+t.tag">
-                    <button @click="activeTag = t.tag; loadBookmarks()"
-                        :class="activeTag === t.tag ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
-                        class="px-2.5 py-1 rounded-full text-xs font-medium transition"
-                        x-text="t.tag"></button>
-                </template>
+            <!-- Mobile tag strip: one scrollable row; edge fades hint at
+                 off-screen tags so the list starts ~40px below the header -->
+            <div class="lg:hidden relative mb-4">
+                <div x-ref="tagStrip" class="tag-strip" @scroll.passive="updateTagEdges()"
+                    @resize.window.passive="updateTagEdges()">
+                    <button @click="clearTag($el)"
+                        :data-active="!activeTag ? 'yes' : 'no'"
+                        :class="!activeTag ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium transition">All</button>
+                    <template x-for="t in tags" :key="'m-'+t.tag">
+                        <button @click="pickTag(t.tag, $el)"
+                            :data-active="activeTag === t.tag ? 'yes' : 'no'"
+                            :class="activeTag === t.tag ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
+                            class="px-2.5 py-1 rounded-full text-xs font-medium transition"
+                            x-text="t.tag"></button>
+                    </template>
+                </div>
+                <div x-show="tagEdges.left" class="tag-fade" style="left:0;background:linear-gradient(to right,#f8fafc,rgba(248,250,252,0))"></div>
+                <div x-show="tagEdges.right" class="tag-fade" style="right:0;background:linear-gradient(to left,#f8fafc,rgba(248,250,252,0))"></div>
             </div>
 
             <!-- Loading skeleton -->
