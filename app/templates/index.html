@@ -181,7 +181,12 @@
                                     <a :href="bm.url" target="_blank" rel="noopener"
                                         class="text-sm font-semibold text-slate-900 hover:text-indigo-600 line-clamp-1 block leading-snug"
                                         x-text="bm.title || bm.url"></a>
-                                    <p class="text-xs text-slate-400 truncate mt-0.5" x-text="new URL(bm.url).hostname"></p>
+                                    <p class="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1.5">
+                                        <span x-text="new URL(bm.url).hostname"></span>
+                                        <span x-show="bm.match === 'semantic'"
+                                            class="shrink-0 px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200 text-[10px] font-medium uppercase tracking-wide"
+                                            title="Found by meaning, not exact words">Related</span>
+                                    </p>
                                 </div>
                             </div>
 

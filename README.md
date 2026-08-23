@@ -4,7 +4,10 @@
 
 A simple, self-hosted bookmarking web app. Save URLs, auto-fetch metadata
 (title, description, favicon), get AI-generated tags via OpenRouter, and
-organize everything with search and tag filtering. Served at
+organize everything with search and tag filtering. Search is hybrid: exact
+keyword matches rank first, then semantic nearest-neighbor matches found by
+meaning (local embeddings — "app for organizing my thoughts" finds Obsidian).
+Semantic-only hits are badged `Related` in the UI. Served at
 `https://lab.kudithipudi.org/bookmark/`.
 
 ## Stack
@@ -16,6 +19,7 @@ organize everything with search and tag filtering. Served at
 | Frontend | Jinja2, Alpine.js 3.14.8 (pinned CDN + SRI), Tailwind CSS (built with standalone CLI) |
 | Scraping | httpx, BeautifulSoup4 |
 | AI Tagging | OpenRouter (model configurable, default `google/gemini-2.5-flash`) |
+| Semantic Search | fastembed (local ONNX, `BAAI/bge-small-en-v1.5`, 384-dim), brute-force cosine over an in-process vector cache |
 | App Server | gunicorn + uvicorn workers, unix socket `bookmark.sock` |
 | Reverse Proxy | nginx (subpath `/bookmark/`) |
 | Process Manager | systemd (`bookmark.service`) |
@@ -31,7 +35,9 @@ Layout:
 │   ├── models.py          # Pydantic models
 │   ├── scraper.py         # URL metadata fetcher
 │   ├── services/
-│   │   └── llm.py         # OpenRouter auto-tagging client
+│   │   ├── llm.py            # OpenRouter auto-tagging client
+│   │   ├── embeddings.py     # local fastembed embedding generation
+│   │   └── semantic_index.py # in-memory vector cache + cosine NN search
 │   ├── templates/index.html  # single-page UI
 │   ├── static/            # app.js, style.css, css/app.css (built Tailwind)
 │   └── logs/              # access.log + app.log (gitignored; .gitkeep committed)
@@ -54,6 +60,25 @@ uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
 Optional: seed 30 sample bookmarks with `python seed.py`.
+
+### Semantic search
+
+Bookmarks are embedded at create/update time (title + description + tags,
+local ONNX model — no API cost) into a nullable `embedding` BLOB column.
+Search embeds the query, does brute-force cosine against all embeddings
+in memory (sub-millisecond at personal-library scale), and appends the
+nearest neighbors above `SEMANTIC_SCORE_THRESHOLD` after exact matches.
+Responses include `"match": "exact" | "semantic"` (+ `score` for semantic).
+
+For an existing database, backfill embeddings once after deploying:
+
+```bash
+venv/bin/python backfill_embeddings.py          # only rows missing one
+venv/bin/python backfill_embeddings.py --force  # recompute all (after changing EMBEDDING_MODEL)
+```
+
+If the model can't load (e.g., first-run download blocked), semantic
+features silently degrade to exact-match-only until restart.
 
 ### Tests
 
@@ -118,6 +143,9 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `OPENROUTER_API_KEY` | (unset) | OpenRouter key for AI auto-tagging; tags are empty without it |
 | `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | OpenRouter model slug for tagging |
 | `LLM_TIMEOUT_SECONDS` | `15.0` | Timeout for OpenRouter calls |
+| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model for semantic search |
+| `SEMANTIC_SCORE_THRESHOLD` | `0.55` | Minimum cosine similarity to include a semantic match |
+| `SEMANTIC_SEARCH_LIMIT` | `12` | Max semantic matches per search |
 | `DELETE_PASSWORD` | (unset) | If set, deletes require `X-Delete-Password` header |
 | `DB_PATH` | `data/bookmarks.db` | SQLite database path (legacy alias: `DATABASE_PATH`) |
 | `LOG_LEVEL` | `info` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
@@ -130,7 +158,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 |--------|----------|-------------|
 | `GET` | `/` | Serves the frontend |
 | `GET` | `/health` | Health check — `{"status": "ok"}`, no auth/DB |
-| `GET` | `/api/bookmarks` | List bookmarks. Query params: `search`, `tag` |
+| `GET` | `/api/bookmarks` | List bookmarks. Query params: `search` (hybrid exact+semantic), `tag` (exact) |
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
 | `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"title", "description", "tags"}` |
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |

@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_model: str = "google/gemini-2.5-flash"
     llm_timeout_seconds: float = 15.0
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    semantic_score_threshold: float = 0.55
+    semantic_search_limit: int = 12
+    # How long an in-worker vector cache may serve before re-reading the
+    # bookmarks table. Bounds staleness across gunicorn workers after writes.
+    semantic_cache_ttl_seconds: float = 30.0
     delete_password: str | None = None
     # DB_PATH is the standard env var name; DATABASE_PATH is kept as a
     # legacy fallback for existing deployments.

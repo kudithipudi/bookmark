@@ -19,6 +19,10 @@ def _isolate_settings(monkeypatch):
     monkeypatch.setattr(settings, "delete_password", None)
     monkeypatch.setattr(settings, "rate_limit_per_minute", 20)
     monkeypatch.setattr(settings, "rate_limit_window_seconds", 60)
+    # Never load the real fastembed model in tests (seconds of startup +
+    # possible download). Tests that need semantics patch embed functions
+    # with fakes instead.
+    monkeypatch.setattr("app.services.embeddings._get_model", lambda: None)
 
 
 @pytest_asyncio.fixture
@@ -36,11 +40,15 @@ async def db():
 @pytest_asyncio.fixture
 async def client(db):
     from app.main import app
+    from app.services.semantic_index import SemanticIndex
 
     async def override_get_db():
         return db
 
     app.state.db = db
+    # Fresh vector cache per test so rows inserted here can't leak into
+    # another test's search results through the TTL'd in-memory index.
+    app.state.semantic_index = SemanticIndex()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

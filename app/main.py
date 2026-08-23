@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -10,6 +11,11 @@ from app.db import init_db, get_db, check_and_record_rate_limit
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app.scraper import fetch_metadata
 from app.services.llm import generate_tags
+from app.services.embeddings import embed_bookmark, embed_query, warmup_embeddings
+from app.services.semantic_index import (
+    get_semantic_index,
+    invalidate_index,
+)
 from collections import Counter
 
 logging.basicConfig(
@@ -24,9 +30,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up: initializing database")
     await init_db()
     app.state.db = await get_db()
+    # Warm the embedding model in the background: first load can take seconds
+    # (model download on a cold host) and must not block startup or the first
+    # search that happens to need it.
+    app.state.embed_warmup_task = asyncio.create_task(warmup_embeddings())
     logger.info("Startup complete")
     yield
     logger.info("Shutting down")
+    task = getattr(app.state, "embed_warmup_task", None)
+    if task:
+        task.cancel()
     if hasattr(app.state, "db"):
         await app.state.db.close()
 
@@ -145,11 +158,14 @@ async def create_bookmark(request: Request, bookmark: BookmarkCreate):
     tags_list = await generate_tags(bookmark.url, title, description)
     tags = ",".join(tags_list)
 
+    embedding = await embed_bookmark(title, description, tags)
+
     cursor = await db.execute(
-        "INSERT INTO bookmarks (url, title, description, favicon, tags) VALUES (?, ?, ?, ?, ?)",
-        (bookmark.url, title, description, favicon, tags),
+        "INSERT INTO bookmarks (url, title, description, favicon, tags, embedding) VALUES (?, ?, ?, ?, ?, ?)",
+        (bookmark.url, title, description, favicon, tags, embedding),
     )
     await db.commit()
+    invalidate_index(app.state)
 
     row = await db.execute("SELECT * FROM bookmarks WHERE id = ?", (cursor.lastrowid,))
     result = await row.fetchone()
@@ -180,7 +196,48 @@ async def list_bookmarks(
 
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
-    return [_row_to_dict(r) for r in rows]
+
+    results = []
+    exact_ids = set()
+    for row in rows:
+        bookmark = _row_to_dict(row)
+        if search:
+            bookmark["match"] = "exact"
+        results.append(bookmark)
+        exact_ids.add(row["id"])
+
+    # Semantic pass: nearest neighbors of the query embedding, appended after
+    # exact matches so precise hits always rank first. Tag browsing is already
+    # an exact filter, so vectors only apply to free-text search.
+    if search and not tag:
+        try:
+            query_vector = await embed_query(search)
+            if query_vector is not None:
+                index = await get_semantic_index(request.app.state)
+                hits = await index.search(db, query_vector, exclude_ids=exact_ids)
+                if hits:
+                    placeholders = ",".join("?" * len(hits))
+                    cursor = await db.execute(
+                        f"SELECT * FROM bookmarks WHERE id IN ({placeholders})",
+                        [bookmark_id for bookmark_id, _ in hits],
+                    )
+                    by_id = {row["id"]: row for row in await cursor.fetchall()}
+                    scored = [
+                        (by_id[bookmark_id], score)
+                        for bookmark_id, score in hits
+                        if bookmark_id in by_id
+                    ]
+                    for row, score in scored:
+                        bookmark = _row_to_dict(row)
+                        bookmark["match"] = "semantic"
+                        bookmark["score"] = score
+                        results.append(bookmark)
+        except Exception:
+            logger.exception(
+                "Semantic search failed for %r; serving exact matches only", search
+            )
+
+    return results
 
 
 @app.put("/api/bookmarks/{bookmark_id}")
@@ -212,6 +269,23 @@ async def update_bookmark(request: Request, bookmark_id: int, update: BookmarkUp
         )
         await db.commit()
 
+        # Content that feeds the embedding changed — recompute it.
+        if any(f in fields for f in ("title = ?", "description = ?", "tags = ?")):
+            row = await db.execute(
+                "SELECT title, description, tags FROM bookmarks WHERE id = ?",
+                (bookmark_id,),
+            )
+            current = await row.fetchone()
+            embedding = await embed_bookmark(
+                current["title"], current["description"], current["tags"]
+            )
+            await db.execute(
+                "UPDATE bookmarks SET embedding = ? WHERE id = ?",
+                (embedding, bookmark_id),
+            )
+            await db.commit()
+        invalidate_index(app.state)
+
     row = await db.execute("SELECT * FROM bookmarks WHERE id = ?", (bookmark_id,))
     result = await row.fetchone()
     return _row_to_dict(result)
@@ -232,6 +306,7 @@ async def delete_bookmark(request: Request, bookmark_id: int):
 
     await db.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
     await db.commit()
+    invalidate_index(app.state)
     logger.info("Deleted bookmark %d", bookmark_id)
     return Response(status_code=204)
 

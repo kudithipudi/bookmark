@@ -1,8 +1,11 @@
+import logging
 import os
 
 import aiosqlite
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 SQL_CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -13,6 +16,7 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     favicon TEXT,
     tags TEXT DEFAULT '',
     is_favorite BOOLEAN DEFAULT 0,
+    embedding BLOB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -50,6 +54,13 @@ async def get_db(db_path: str | None = None) -> aiosqlite.Connection:
 async def init_db(db_path: str | None = None):
     db = await get_db(db_path)
     await db.execute(SQL_CREATE_TABLE)
+    # Migration for databases created before embeddings existed: SQLite has
+    # no "ADD COLUMN IF NOT EXISTS", so check the live schema first.
+    cursor = await db.execute("PRAGMA table_info(bookmarks)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "embedding" not in columns:
+        logger.info("Adding bookmarks.embedding column (migration)")
+        await db.execute("ALTER TABLE bookmarks ADD COLUMN embedding BLOB")
     await db.execute(SQL_CREATE_RATE_LIMIT_TABLE)
     await db.execute(SQL_CREATE_RATE_LIMIT_INDEX)
     await db.commit()
