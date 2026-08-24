@@ -198,7 +198,7 @@
                     </div>
                     <!-- Title + favicon -->
                     <div class="flex items-start gap-2.5 mb-2">
-                        <img :src="bm.favicon || 'https://www.google.com/s2/favicons?domain=' + new URL(bm.url).hostname + '&sz=32'"
+                        <img :src="bm.favicon ? '{{ prefix }}' + bm.favicon : 'https://www.google.com/s2/favicons?domain=' + new URL(bm.url).hostname + '&sz=32'"
                             width="20" height="20"
                             class="w-5 h-5 mt-0.5 rounded-sm shrink-0 object-contain" @error="$el.style.display='none'">
                         <div class="min-w-0 flex-1">

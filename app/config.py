@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         default="data/bookmarks.db",
         validation_alias=AliasChoices("DB_PATH", "DATABASE_PATH"),
     )
+    # Where downloaded favicons are cached and served from (mounted at
+    # /favicons), so browsers stop re-fetching them from the source site.
+    favicon_dir: str = "data/favicons"
+    favicon_max_bytes: int = 512 * 1024
     log_level: str = "info"
     rate_limit_per_minute: int = 20
     rate_limit_window_seconds: int = 60

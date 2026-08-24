@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -13,6 +14,7 @@ from app.config import settings
 from app.db import init_db, get_db, check_and_record_rate_limit
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app.scraper import fetch_metadata
+from app.services.favicon import save_favicon
 from app.services.llm import generate_tags
 from app.services.embeddings import embed_bookmark, embed_query, warmup_embeddings
 from app.services.semantic_index import (
@@ -49,6 +51,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+os.makedirs(settings.favicon_dir, exist_ok=True)
+app.mount("/favicons", StaticFiles(directory=settings.favicon_dir), name="favicons")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["prefix"] = settings.root_path
 
@@ -159,7 +163,9 @@ async def create_bookmark(request: Request, bookmark: BookmarkCreate):
     metadata = await fetch_metadata(bookmark.url)
     title = metadata.get("title")
     description = metadata.get("description")
-    favicon = metadata.get("favicon")
+    # Download and cache the favicon locally instead of storing the remote
+    # URL, so we serve it ourselves (no repeat fetches, no surprise 404s).
+    favicon = await save_favicon(bookmark.url, metadata.get("favicon"))
 
     # AI auto-tag
     tags_list = await generate_tags(bookmark.url, title, description)

@@ -37,14 +37,19 @@ async def test_add_bookmark_with_scraping_and_tagging(client, db):
     async def mock_generate_tags(url, title, desc):
         return ["testing", "integration", "web"]
 
+    async def mock_save_favicon(bookmark_url, favicon_url):
+        return "/favicons/deadbeef.ico"
+
     with patch("app.main.fetch_metadata", side_effect=mock_fetch_metadata), \
-         patch("app.main.generate_tags", side_effect=mock_generate_tags):
+         patch("app.main.generate_tags", side_effect=mock_generate_tags), \
+         patch("app.main.save_favicon", side_effect=mock_save_favicon):
         resp = await client.post("/api/bookmarks", json={"url": "https://integration-test.com"})
 
     assert resp.status_code == 201
     data = resp.json()
     assert data["title"] == "Integration Test Page"
     assert data["description"] == "A test page for integration"
+    assert data["favicon"] == "/favicons/deadbeef.ico"
     assert "testing" in data["tags"]
     assert "integration" in data["tags"]
 
