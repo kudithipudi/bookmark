@@ -130,6 +130,61 @@ async def test_delete_bookmark(client, db):
     assert await row.fetchone() is None
 
 
+async def test_analytics_page(client):
+    resp = await client.get("/analytics")
+    assert resp.status_code == 200
+    assert "Bookmarks" in resp.text
+
+
+async def test_get_analytics_empty(client):
+    resp = await client.get("/api/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_bookmarks"] == 0
+    assert data["timeline"] == []
+    assert data["top_tags"] == []
+    assert data["top_domains"] == []
+
+
+async def test_get_analytics(client, db):
+    await db.execute(
+        "INSERT INTO bookmarks (url, tags, created_at) VALUES (?, ?, ?)",
+        ("https://a.example.com", "python,web", "2020-01-15 10:00:00"),
+    )
+    await db.execute(
+        "INSERT INTO bookmarks (url, tags, created_at) VALUES (?, ?, ?)",
+        ("https://www.a.example.com", "python", "2020-01-20 10:00:00"),
+    )
+    await db.execute(
+        "INSERT INTO bookmarks (url, tags, created_at) VALUES (?, ?, ?)",
+        ("https://b.example.com", "rust", "2020-03-05 10:00:00"),
+    )
+    await db.commit()
+
+    resp = await client.get("/api/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["total_bookmarks"] == 3
+    assert data["total_tags"] == 3
+    # www. is normalized away, so both a.example.com bookmarks share one domain.
+    assert data["total_domains"] == 2
+
+    tags = {t["tag"]: t["count"] for t in data["top_tags"]}
+    assert tags == {"python": 2, "web": 1, "rust": 1}
+
+    domains = {d["domain"]: d["count"] for d in data["top_domains"]}
+    assert domains == {"a.example.com": 2, "b.example.com": 1}
+
+    # Timeline is zero-filled from the first to the last bookmark's month,
+    # including the empty February between them.
+    periods = {pt["period"]: pt["count"] for pt in data["timeline"]}
+    assert periods["2020-01"] == 2
+    assert periods["2020-02"] == 0
+    assert periods["2020-03"] == 1
+    assert [pt["period"] for pt in data["timeline"]] == ["2020-01", "2020-02", "2020-03"]
+
+
 async def test_get_tags(client, db):
     await db.execute("INSERT INTO bookmarks (url, tags) VALUES (?, ?)", ("https://a.com", "python,web"))
     await db.execute("INSERT INTO bookmarks (url, tags) VALUES (?, ?)", ("https://b.com", "python,api"))

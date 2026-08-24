@@ -122,6 +122,47 @@ async def test_hybrid_search_exact_first_then_semantic(client, db):
     assert data[1]["score"] > settings.semantic_score_threshold
 
 
+async def test_tags_scoped_to_search_results(client, db):
+    # Exact keyword hit, tagged "language".
+    await _insert(db, "https://py.org", title="Python Language", tags="language")
+    # Semantic-only hit (no keyword overlap), tagged "ml".
+    await _insert(
+        db,
+        "https://ai-journal.example.com",
+        title="Neural Networks Journal",
+        tags="ml",
+        embedding=make_vector(1.0),
+    )
+    # Unrelated bookmark that shouldn't appear in either search result.
+    await _insert(db, "https://cooking.example.com", title="Recipes", tags="cooking")
+
+    async def fake_embed_query(search):
+        return [0.99] + [0.14] + [0.0] * (EMBEDDING_DIM - 2)
+
+    with patch("app.main.embed_query", side_effect=fake_embed_query):
+        resp = await client.get("/api/tags", params={"search": "python"})
+
+    data = resp.json()
+    tags = {t["tag"]: t["count"] for t in data["tags"]}
+    assert tags == {"language": 1, "ml": 1}
+    # "total" always reflects the whole library, independent of the search.
+    assert data["total"] == 3
+
+
+async def test_tags_search_scoping_degrades_gracefully_without_embeddings(client, db):
+    await _insert(db, "https://py.org", title="Python Language", tags="language")
+
+    async def none_embed_query(search):
+        return None
+
+    with patch("app.main.embed_query", side_effect=none_embed_query):
+        resp = await client.get("/api/tags", params={"search": "python"})
+
+    assert resp.status_code == 200
+    tags = {t["tag"]: t["count"] for t in resp.json()["tags"]}
+    assert tags == {"language": 1}
+
+
 async def test_no_search_param_has_no_match_field(client, db):
     await _insert(db, "https://plain.com", title="Plain")
     resp = await client.get("/api/bookmarks")

@@ -1,7 +1,10 @@
 import asyncio
 import logging
 import time
+from collections import Counter
 from contextlib import asynccontextmanager
+from datetime import date
+from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +19,6 @@ from app.services.semantic_index import (
     get_semantic_index,
     invalidate_index,
 )
-from collections import Counter
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -97,6 +99,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/analytics")
+async def analytics_page(request: Request):
+    return templates.TemplateResponse("analytics.html", {"request": request})
 
 
 def _client_ip(request: Request) -> str:
@@ -311,11 +318,47 @@ async def delete_bookmark(request: Request, bookmark_id: int):
     return Response(status_code=204)
 
 
+async def _search_ids(request: Request, db, search: str) -> set[int]:
+    """Ids of bookmarks matching `search`, by the same exact+semantic rules
+    as /api/bookmarks (tag filtering is deliberately excluded — see there)."""
+    cursor = await db.execute(
+        "SELECT id FROM bookmarks WHERE title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?",
+        [f"%{search}%"] * 4,
+    )
+    ids = {row["id"] for row in await cursor.fetchall()}
+
+    try:
+        query_vector = await embed_query(search)
+        if query_vector is not None:
+            index = await get_semantic_index(request.app.state)
+            hits = await index.search(db, query_vector, exclude_ids=ids)
+            ids.update(bookmark_id for bookmark_id, _ in hits)
+    except Exception:
+        logger.exception("Semantic lookup failed for %r while scoping tags", search)
+
+    return ids
+
+
 @app.get("/api/tags")
-async def get_tags(request: Request):
+async def get_tags(request: Request, search: str | None = None):
     db = request.app.state.db
-    cursor = await db.execute("SELECT tags FROM bookmarks WHERE tags != '' AND tags IS NOT NULL")
-    rows = await cursor.fetchall()
+
+    # When a search is active, scope the tag list + counts to the matching
+    # bookmarks so the sidebar reflects what's actually on screen, instead
+    # of always listing every tag in the library.
+    if search:
+        ids = await _search_ids(request, db, search)
+        rows = []
+        if ids:
+            placeholders = ",".join("?" * len(ids))
+            cursor = await db.execute(
+                f"SELECT tags FROM bookmarks WHERE id IN ({placeholders}) AND tags != '' AND tags IS NOT NULL",
+                list(ids),
+            )
+            rows = await cursor.fetchall()
+    else:
+        cursor = await db.execute("SELECT tags FROM bookmarks WHERE tags != '' AND tags IS NOT NULL")
+        rows = await cursor.fetchall()
 
     counter = Counter()
     for row in rows:
@@ -324,9 +367,74 @@ async def get_tags(request: Request):
             if tag:
                 counter[tag] += 1
 
+    # "total" backs the "All bookmarks" sidebar entry, which clears filters —
+    # it always reflects the whole library, not the current search scope.
     total_cursor = await db.execute("SELECT COUNT(*) FROM bookmarks")
     total = (await total_cursor.fetchone())[0]
     return {
         "total": total,
         "tags": [{"tag": tag, "count": count} for tag, count in counter.most_common()],
+    }
+
+
+@app.get("/api/analytics")
+async def get_analytics(request: Request):
+    db = request.app.state.db
+
+    total_cursor = await db.execute("SELECT COUNT(*) FROM bookmarks")
+    total_bookmarks = (await total_cursor.fetchone())[0]
+
+    tags_cursor = await db.execute("SELECT tags FROM bookmarks WHERE tags != '' AND tags IS NOT NULL")
+    tag_counter = Counter()
+    for row in await tags_cursor.fetchall():
+        for tag in row["tags"].split(","):
+            tag = tag.strip()
+            if tag:
+                tag_counter[tag] += 1
+
+    url_cursor = await db.execute("SELECT url FROM bookmarks")
+    domain_counter = Counter()
+    for row in await url_cursor.fetchall():
+        host = urlparse(row["url"]).hostname or ""
+        host = host.removeprefix("www.")
+        if host:
+            domain_counter[host] += 1
+
+    period_cursor = await db.execute(
+        "SELECT strftime('%Y-%m', created_at) AS period, COUNT(*) AS n "
+        "FROM bookmarks WHERE created_at IS NOT NULL GROUP BY period ORDER BY period"
+    )
+    counts_by_period = {row["period"]: row["n"] for row in await period_cursor.fetchall()}
+
+    # Zero-fill every month between the first and last bookmark so the
+    # timeline reads as a continuous axis, not just the months with activity.
+    timeline = []
+    if counts_by_period:
+        cursor_date = date.fromisoformat(min(counts_by_period) + "-01")
+        end_date = date.fromisoformat(max(counts_by_period) + "-01")
+        while cursor_date <= end_date:
+            period = cursor_date.strftime("%Y-%m")
+            timeline.append(
+                {
+                    "period": period,
+                    "label": cursor_date.strftime("%b %Y"),
+                    "count": counts_by_period.get(period, 0),
+                }
+            )
+            cursor_date = date(
+                cursor_date.year + (cursor_date.month == 12),
+                cursor_date.month % 12 + 1,
+                1,
+            )
+
+    this_month = date.today().strftime("%Y-%m")
+
+    return {
+        "total_bookmarks": total_bookmarks,
+        "total_tags": len(tag_counter),
+        "total_domains": len(domain_counter),
+        "added_this_month": counts_by_period.get(this_month, 0),
+        "timeline": timeline,
+        "top_tags": [{"tag": tag, "count": count} for tag, count in tag_counter.most_common(30)],
+        "top_domains": [{"domain": domain, "count": count} for domain, count in domain_counter.most_common(10)],
     }

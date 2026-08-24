@@ -51,6 +51,18 @@ header {
     white-space: nowrap;
 }
 
+/* Analytics timeline bars: injected via x-html (see analytics.js), so hover
+   feedback is plain CSS rather than an Alpine binding. */
+.bar-mark {
+    fill: #818cf8;
+    cursor: default;
+    transition: fill 0.15s;
+}
+
+.bar-mark:hover {
+    fill: #4338ca;
+}
+
 /* Edge fade overlays; visibility toggled from JS based on scroll position */
 .tag-fade {
     position: absolute;

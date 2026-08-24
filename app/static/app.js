@@ -19,7 +19,6 @@ document.addEventListener('alpine:init', () => {
             if (params.get('search')) this.searchQuery = params.get('search');
             if (params.get('tag')) this.activeTag = params.get('tag');
             await this.loadBookmarks();
-            await this.loadTags();
             // Deep-linked tag: bring its pill into view once rendered.
             this.$nextTick(() => {
                 this.updateTagEdges();
@@ -37,8 +36,13 @@ document.addEventListener('alpine:init', () => {
             if (this.activeTag) params.set('tag', this.activeTag);
             this.syncUrl();
             try {
-                const resp = await fetch(`api/bookmarks?${params}`);
-                this.bookmarks = await resp.json();
+                // Tag list is fetched alongside, scoped to the same search text,
+                // so the sidebar always reflects what's actually on screen.
+                const [bmResp] = await Promise.all([
+                    fetch(`api/bookmarks?${params}`),
+                    this.loadTags(),
+                ]);
+                this.bookmarks = await bmResp.json();
             } catch (e) {
                 this.showToast('Failed to load bookmarks. Try refreshing.', 'error');
             }
@@ -56,7 +60,9 @@ document.addEventListener('alpine:init', () => {
 
         async loadTags() {
             try {
-                const resp = await fetch('api/tags');
+                const params = new URLSearchParams();
+                if (this.searchQuery) params.set('search', this.searchQuery);
+                const resp = await fetch(`api/tags?${params}`);
                 const data = await resp.json();
                 this.tags = data.tags || [];
                 this.totalBookmarks = data.total || 0;
@@ -102,6 +108,10 @@ document.addEventListener('alpine:init', () => {
             return this.bookmarks.filter(b => b.match === 'semantic');
         },
 
+        matchPercent(score) {
+            return Math.round((score || 0) * 100);
+        },
+
         async addBookmark() {
             if (!this.newUrl) return;
             if (!/^https?:\/\//i.test(this.newUrl)) {
@@ -119,7 +129,6 @@ document.addEventListener('alpine:init', () => {
                 } else if (resp.ok) {
                     this.newUrl = '';
                     await this.loadBookmarks();
-                    await this.loadTags();
                     this.showToast('Bookmark saved');
                 } else {
                     this.showToast('Failed to save bookmark', 'error');
@@ -149,7 +158,6 @@ document.addEventListener('alpine:init', () => {
                 if (resp.ok) {
                     this.editingId = null;
                     await this.loadBookmarks();
-                    await this.loadTags();
                     this.showToast('Bookmark updated');
                 }
             } catch (e) {
@@ -172,7 +180,6 @@ document.addEventListener('alpine:init', () => {
                 if (resp.ok) {
                     this.deleteModal.open = false;
                     await this.loadBookmarks();
-                    await this.loadTags();
                     this.showToast('Bookmark deleted');
                 } else if (resp.status === 401) {
                     this.deleteModal.error = 'Incorrect password. Try again.';

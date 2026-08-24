@@ -6,9 +6,9 @@
     <title>Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.1">
-    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.2">
-    <script src="{{ prefix }}/static/app.js?v=1.0.5"></script>
+    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.2">
+    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.3">
+    <script src="{{ prefix }}/static/app.js?v=1.0.6"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -47,7 +47,11 @@
                         <span class="hidden sm:inline" x-text="adding ? 'Saving…' : 'Save'"></span>
                     </button>
                 </form>
-                <a href="https://lab.kudithipudi.org/" class="hidden lg:inline-flex items-center text-sm text-slate-500 hover:text-slate-900 shrink-0 ml-auto transition">
+                <a href="{{ prefix }}/analytics" class="hidden sm:inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 shrink-0 ml-auto transition">
+                    <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V9m4 8V5m4 12v-6M4 21h16"/></svg>
+                    Analytics
+                </a>
+                <a href="https://lab.kudithipudi.org/" class="hidden lg:inline-flex items-center text-sm text-slate-500 hover:text-slate-900 shrink-0 transition">
                     <span aria-hidden="true" class="mr-1">&larr;</span> lab.kudithipudi.org
                 </a>
             </div>
@@ -179,6 +183,19 @@
 
                 <!-- View mode -->
                 <div x-show="editingId !== bm.id" class="flex flex-col flex-1">
+                    <!-- Match strength: how closely this result matches the search, by meaning -->
+                    <div x-show="bm.match === 'semantic'" class="mb-2.5">
+                        <div class="flex items-center justify-between text-[11px] font-medium text-indigo-600 mb-1">
+                            <span class="inline-flex items-center gap-1">
+                                <svg class="w-3 h-3" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                                Related
+                            </span>
+                            <span x-text="matchPercent(bm.score) + '% match'"></span>
+                        </div>
+                        <div class="h-1 rounded-full bg-indigo-100 overflow-hidden">
+                            <div class="h-full rounded-full bg-indigo-500" :style="'width:' + matchPercent(bm.score) + '%'"></div>
+                        </div>
+                    </div>
                     <!-- Title + favicon -->
                     <div class="flex items-start gap-2.5 mb-2">
                         <img :src="bm.favicon || 'https://www.google.com/s2/favicons?domain=' + new URL(bm.url).hostname + '&sz=32'"
@@ -230,14 +247,26 @@
             </div>
             {% endmacro %}
 
-            <!-- Exact matches (keyword hits, or the unfiltered library) -->
-            <div x-show="!loading" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                <template x-for="bm in exactBookmarks" :key="bm.id">
-                    {{ bookmark_card() }}
-                </template>
-            </div>
+            <!-- Exact matches: keyword hits when searching, or the unfiltered library -->
+            <template x-if="!loading && exactBookmarks.length > 0">
+                <section class="pb-2" :aria-label="searchQuery ? 'Bookmarks matching your search text' : 'All bookmarks'">
+                    <template x-if="searchQuery">
+                        <div class="flex items-center gap-2 px-1 pb-3 pt-1">
+                            <svg class="w-3.5 h-3.5 shrink-0 text-slate-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap">Exact matches</h2>
+                            <span class="text-xs text-slate-400" x-text="'· ' + exactBookmarks.length"></span>
+                            <span class="flex-1 border-t border-slate-200"></span>
+                        </div>
+                    </template>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                        <template x-for="bm in exactBookmarks" :key="bm.id">
+                            {{ bookmark_card() }}
+                        </template>
+                    </div>
+                </section>
+            </template>
 
-            <!-- Related by meaning: embedding-based recommendations -->
+            <!-- Related by meaning: embedding-based recommendations, ranked by match strength -->
             <template x-if="!loading && semanticBookmarks.length > 0">
                 <section class="pt-2" aria-label="Related bookmarks found by meaning">
                     <div class="flex items-center gap-2 px-1 pb-3 pt-1">

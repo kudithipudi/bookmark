@@ -7,8 +7,15 @@ A simple, self-hosted bookmarking web app. Save URLs, auto-fetch metadata
 organize everything with search and tag filtering. Search is hybrid: exact
 keyword matches rank first, then semantic nearest-neighbor matches found by
 meaning (local embeddings — "app for organizing my thoughts" finds Obsidian).
-Semantic-only hits are badged `Related` in the UI. Served at
-`https://lab.kudithipudi.org/bookmark/`.
+Semantic-only hits are shown in their own "Related by meaning" section, each
+badged with a `NN% match` strength indicator. The tag sidebar is scoped to
+the current search, too — it only lists tags actually present among the
+matched bookmarks (exact + semantic), not the whole library.
+
+A dedicated `/analytics` page visualizes the collection: bookmarks saved per
+month, top tags, top domains, and a tag word cloud.
+
+Served at `https://lab.kudithipudi.org/bookmark/`.
 
 ## Stack
 
@@ -38,8 +45,8 @@ Layout:
 │   │   ├── llm.py            # OpenRouter auto-tagging client
 │   │   ├── embeddings.py     # local fastembed embedding generation
 │   │   └── semantic_index.py # in-memory vector cache + cosine NN search
-│   ├── templates/index.html  # single-page UI
-│   ├── static/            # app.js, style.css, css/app.css (built Tailwind)
+│   ├── templates/          # index.html (main UI), analytics.html (charts/stats page)
+│   ├── static/            # app.js, analytics.js, style.css, css/app.css (built Tailwind)
 │   └── logs/              # access.log + app.log (gitignored; .gitkeep committed)
 ├── data/                  # SQLite db (gitignored, www-data writable)
 ├── db/schema.sql          # canonical schema
@@ -159,9 +166,11 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/` | Serves the frontend |
+| `GET` | `/analytics` | Serves the analytics/visualization page |
 | `GET` | `/health` | Health check — `{"status": "ok"}`, no auth/DB |
 | `GET` | `/api/bookmarks` | List bookmarks. Query params: `search` (hybrid exact+semantic), `tag` (exact) |
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
 | `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"title", "description", "tags"}` |
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
-| `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count: `{"total": N, "tags": [...]}` |
+| `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count. Query param: `search` scopes the tags/counts to bookmarks matching that search (exact+semantic); `"total"` always reflects the whole library |
+| `GET` | `/api/analytics` | Collection stats: totals, a zero-filled monthly `timeline`, `top_tags`, `top_domains` |
