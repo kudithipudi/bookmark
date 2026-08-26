@@ -26,3 +26,32 @@ graft/
 Thumbs.db
 # onnxruntime telemetry sidecar written to cwd by gunicorn workers
 *.ses
+
+# coding agent config (local only)
+.claude/
+.claude.json
+CLAUDE.md
+AGENTS.md
+.mcp.json
+opencode.json
+.opencode/
+.codex/
+codex.md
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.windsurfrules
+.windsurf/
+GEMINI.md
+.gemini/
+.github/copilot-instructions.md
+.copilot/
+.clinerules
+.cline/
+.roo/
+.kilocode/
+.trae/
+.serena/
+.continue/
+.codeium/
