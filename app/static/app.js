@@ -29,7 +29,12 @@ document.addEventListener('alpine:init', () => {
             });
         },
 
-        async loadBookmarks() {
+        async loadBookmarks(scroll = false) {
+            // Filter changes (tag/search) can shrink a long, scrolled-down
+            // list — snap back to the top so the new results aren't hidden
+            // below the fold. Mutations (add/edit/delete) skip this so the
+            // page doesn't jump away from where the user was working.
+            if (scroll) window.scrollTo(0, 0);
             this.loading = true;
             const params = new URLSearchParams();
             if (this.searchQuery) params.set('search', this.searchQuery);
@@ -88,13 +93,13 @@ document.addEventListener('alpine:init', () => {
 
         pickTag(tag, el) {
             this.activeTag = tag;
-            this.loadBookmarks();
+            this.loadBookmarks(true);
             this.focusTag(el);
         },
 
         clearTag(el) {
             this.activeTag = '';
-            this.loadBookmarks();
+            this.loadBookmarks(true);
             this.focusTag(el);
         },
 
