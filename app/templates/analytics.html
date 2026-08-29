@@ -24,7 +24,7 @@
                 <span class="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-indigo-600 text-white text-sm font-bold">B</span>
                 <span class="flex flex-col leading-tight">
                     <span class="text-[15px] font-semibold tracking-tight">Bookmarks</span>
-                    <span class="text-[11px] text-slate-500">Analytics</span>
+                    <span class="text-xs text-slate-500">Analytics</span>
                 </span>
             </a>
             <a href="{{ prefix }}/" class="ml-auto flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 shrink-0 transition">
@@ -49,7 +49,7 @@
         <div x-show="!loading && totals.total_bookmarks === 0" class="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
             <svg class="w-14 h-14 mx-auto text-slate-200 mb-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17V9m4 8V5m4 12v-6M4 21h16"/></svg>
             <p class="text-slate-500 font-medium">Nothing to show yet</p>
-            <p class="text-slate-400 text-sm mt-1">Save a few bookmarks and your analytics will appear here.</p>
+            <p class="text-slate-500 text-sm mt-1">Save a few bookmarks and your analytics will appear here.</p>
         </div>
 
         <div x-show="!loading && totals.total_bookmarks > 0" class="space-y-6">
@@ -57,19 +57,19 @@
             <!-- KPI row -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div class="bg-white rounded-xl border border-slate-200 p-4">
-                    <p class="text-xs font-medium text-slate-400 mb-1">Total bookmarks</p>
+                    <p class="text-xs font-medium text-slate-500 mb-1">Total bookmarks</p>
                     <p class="text-2xl font-semibold text-slate-900" x-text="totals.total_bookmarks"></p>
                 </div>
                 <div class="bg-white rounded-xl border border-slate-200 p-4">
-                    <p class="text-xs font-medium text-slate-400 mb-1">Tags</p>
+                    <p class="text-xs font-medium text-slate-500 mb-1">Tags</p>
                     <p class="text-2xl font-semibold text-slate-900" x-text="totals.total_tags"></p>
                 </div>
                 <div class="bg-white rounded-xl border border-slate-200 p-4">
-                    <p class="text-xs font-medium text-slate-400 mb-1">Domains</p>
+                    <p class="text-xs font-medium text-slate-500 mb-1">Domains</p>
                     <p class="text-2xl font-semibold text-slate-900" x-text="totals.total_domains"></p>
                 </div>
                 <div class="bg-white rounded-xl border border-slate-200 p-4">
-                    <p class="text-xs font-medium text-slate-400 mb-1">Added this month</p>
+                    <p class="text-xs font-medium text-slate-500 mb-1">Added this month</p>
                     <p class="text-2xl font-semibold text-indigo-600" x-text="totals.added_this_month"></p>
                 </div>
             </div>
@@ -78,7 +78,7 @@
             <div class="bg-white rounded-xl border border-slate-200 p-5">
                 <div class="flex items-baseline justify-between mb-1">
                     <h2 class="text-sm font-semibold text-slate-900">Bookmarks over time</h2>
-                    <span class="text-xs text-slate-400" x-text="timeline.length + (timeline.length === 1 ? ' month' : ' months')"></span>
+                    <span class="text-xs text-slate-500" x-text="timeline.length + (timeline.length === 1 ? ' month' : ' months')"></span>
                 </div>
                 <p class="text-xs text-slate-500 h-4 mb-2"
                     x-text="hoverIndex !== null
@@ -90,7 +90,7 @@
                             class="w-full block" style="height:140px" role="img" aria-label="Bar chart of bookmarks saved per month"
                             @mouseover="onBarHover($event)" @mouseleave="hoverIndex = null"
                             x-html="barsSvg"></svg>
-                        <div class="flex text-[10px] text-slate-400 mt-1">
+                        <div class="flex text-[10px] text-slate-500 mt-1">
                             <template x-for="(pt, i) in timeline" :key="'lbl-' + pt.period">
                                 <div style="width:32px" class="text-center truncate" x-text="showLabel(i) ? pt.shortLabel : ''"></div>
                             </template>
@@ -110,11 +110,11 @@
                                 <div class="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden">
                                     <div class="h-full rounded-full bg-indigo-500" :style="'width:' + barWidth(t.count, maxTagCount) + '%'"></div>
                                 </div>
-                                <span class="w-6 text-right tabular-nums text-slate-400" x-text="t.count"></span>
+                                <span class="w-6 text-right tabular-nums text-slate-500" x-text="t.count"></span>
                             </div>
                         </template>
                     </div>
-                    <p class="text-xs text-slate-400" x-show="topTags.length === 0">No tags yet.</p>
+                    <p class="text-xs text-slate-500" x-show="topTags.length === 0">No tags yet.</p>
                 </div>
                 <div class="bg-white rounded-xl border border-slate-200 p-5">
                     <h2 class="text-sm font-semibold text-slate-900 mb-3">Top domains</h2>
@@ -125,11 +125,11 @@
                                 <div class="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden">
                                     <div class="h-full rounded-full bg-teal-500" :style="'width:' + barWidth(d.count, maxDomainCount) + '%'"></div>
                                 </div>
-                                <span class="w-6 text-right tabular-nums text-slate-400" x-text="d.count"></span>
+                                <span class="w-6 text-right tabular-nums text-slate-500" x-text="d.count"></span>
                             </div>
                         </template>
                     </div>
-                    <p class="text-xs text-slate-400" x-show="topDomains.length === 0">No domains yet.</p>
+                    <p class="text-xs text-slate-500" x-show="topDomains.length === 0">No domains yet.</p>
                 </div>
             </div>
 
@@ -146,7 +146,7 @@
                             x-text="t.tag"></a>
                     </template>
                 </div>
-                <p class="text-xs text-slate-400" x-show="topTags.length === 0">No tags yet.</p>
+                <p class="text-xs text-slate-500" x-show="topTags.length === 0">No tags yet.</p>
             </div>
 
         </div>
@@ -154,7 +154,7 @@
 
     <!-- Footer -->
     <footer class="border-t border-slate-200 py-6 mt-10">
-        <div class="max-w-[1100px] mx-auto px-4 text-xs text-slate-400 text-center">
+        <div class="max-w-[1100px] mx-auto px-4 text-xs text-slate-500 text-center">
             Part of the <a href="https://lab.kudithipudi.org/" class="hover:text-slate-700 underline">Kudithipudi AI Lab</a>
         </div>
     </footer>
