@@ -1,5 +1,12 @@
 # Bookmarks
 
+A simple, self-hosted bookmarking web app — save a URL, get auto-fetched
+metadata and AI tags, find things again with hybrid keyword + semantic search.
+
+![The bookmark list with the tag sidebar and search](docs/screenshot.png)
+
+![The analytics page — totals, growth over time, top tags and domains, tag cloud](docs/screenshot-analytics.png)
+
 ## What it is
 
 A simple, self-hosted bookmarking web app. Save URLs, auto-fetch metadata
@@ -59,14 +66,24 @@ Layout:
 
 ## Run locally
 
+Needs Python 3.11+ (developed on 3.12). From a fresh clone:
+
 ```bash
-cd /var/www/bookmark
-source venv/bin/activate
+git clone https://github.com/kudithipudi/bookmark && cd bookmark
+
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+cp .env.example .env            # runs as-is; add OPENROUTER_API_KEY for AI tags
+python seed.py                  # optional: load 30 sample bookmarks
+
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-Optional: seed 30 sample bookmarks with `python seed.py`.
+The first run downloads a small local embedding model (one time, cached under
+`.cache/fastembed`). AI auto-tagging stays off until you set `OPENROUTER_API_KEY`;
+everything else — saving, metadata scraping, semantic search — works without any
+API key.
 
 ### Semantic search
 
@@ -174,3 +191,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
 | `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count. Query param: `search` scopes the tags/counts to bookmarks matching that search (exact+semantic); `"total"` always reflects the whole library |
 | `GET` | `/api/analytics` | Collection stats: totals, a zero-filled monthly `timeline`, `top_tags`, `top_domains` |
+
+## License
+
+[MIT](LICENSE) © Vinay Kudithipudi. Fork it, run your own, make it yours.
