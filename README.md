@@ -1,5 +1,8 @@
 # Bookmarks
 
+[![Latest release](https://img.shields.io/github/v/release/kudithipudi/bookmark?sort=semver&label=release)](https://github.com/kudithipudi/bookmark/releases)
+[![License: MIT](https://img.shields.io/github/license/kudithipudi/bookmark)](LICENSE)
+
 A simple, self-hosted bookmarking web app — save a URL, get auto-fetched
 metadata and AI tags, find things again with hybrid keyword + semantic search.
 
