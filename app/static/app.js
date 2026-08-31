@@ -13,12 +13,26 @@ document.addEventListener('alpine:init', () => {
         deleteModal: { open: false, id: null, password: '', error: '' },
         toast: { msg: '', type: 'success' },
         tagEdges: { left: false, right: false },
+        // Link-health filter: '' (all), 'broken', or 'review'. Mutually
+        // exclusive with a tag filter (see the $watch in init()).
+        healthFilter: '',
+        linkHealth: { broken: 0, review: 0, checked: 0, total: 0, last_run: null },
+        linkCheck: { open: false, password: '', error: '', running: false, run: null, poll: null },
+        // Consecutive failed sweeps before a link is called "broken" (mirrors
+        // LINK_CHECK_BROKEN_THRESHOLD on the server).
+        brokenThreshold: 1,
 
         async init() {
             const params = new URLSearchParams(window.location.search);
             if (params.get('search')) this.searchQuery = params.get('search');
             if (params.get('tag')) this.activeTag = params.get('tag');
+            if (['broken', 'review'].includes(params.get('health'))) {
+                this.healthFilter = params.get('health');
+            }
+            // A tag filter and a link-health filter can't both be active.
+            this.$watch('activeTag', v => { if (v) this.healthFilter = ''; });
             await this.loadBookmarks();
+            this.loadLinkHealth();
             // Deep-linked tag: bring its pill into view once rendered.
             this.$nextTick(() => {
                 this.updateTagEdges();
@@ -39,6 +53,7 @@ document.addEventListener('alpine:init', () => {
             const params = new URLSearchParams();
             if (this.searchQuery) params.set('search', this.searchQuery);
             if (this.activeTag) params.set('tag', this.activeTag);
+            if (this.healthFilter) params.set('status', this.healthFilter);
             this.syncUrl();
             try {
                 // Tag list is fetched alongside, scoped to the same search text,
@@ -60,6 +75,8 @@ document.addEventListener('alpine:init', () => {
             else url.searchParams.delete('search');
             if (this.activeTag) url.searchParams.set('tag', this.activeTag);
             else url.searchParams.delete('tag');
+            if (this.healthFilter) url.searchParams.set('health', this.healthFilter);
+            else url.searchParams.delete('health');
             history.replaceState(null, '', url.toString());
         },
 
@@ -173,6 +190,157 @@ document.addEventListener('alpine:init', () => {
         openDeleteModal(id) {
             this.deleteModal = { open: true, id, password: '', error: '' };
             this.$nextTick(() => this.$refs.deletePasswordInput?.focus());
+        },
+
+        // --- Link health ---------------------------------------------------
+
+        async loadLinkHealth() {
+            try {
+                const resp = await fetch('api/link-health');
+                if (resp.ok) this.linkHealth = await resp.json();
+            } catch (e) {}
+        },
+
+        pickHealth(filter) {
+            this.healthFilter = this.healthFilter === filter ? '' : filter;
+            if (this.healthFilter) this.activeTag = '';
+            this.loadBookmarks(true);
+        },
+
+        // Red badge only once a link has failed the threshold; before that
+        // it's amber "failing" (could still be a transient blip).
+        linkBadge(bm) {
+            const s = bm.link_status;
+            if (!s || s === 'ok') return null;
+            const code = bm.link_status_code ? ' · ' + bm.link_status_code : '';
+            if (s === 'broken') {
+                const confirmed = (bm.link_fail_count || 0) >= this.brokenThreshold;
+                return {
+                    cls: confirmed
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200',
+                    label: (confirmed ? 'Link broken' : 'Link failing') + code,
+                };
+            }
+            if (s === 'moved') {
+                return { cls: 'bg-amber-50 text-amber-800 border-amber-200', label: 'Redirects elsewhere' };
+            }
+            return { cls: 'bg-slate-100 text-slate-600 border-slate-200', label: 'Unreachable' + code };
+        },
+
+        async adoptFinalUrl(bm) {
+            if (!bm.link_final_url) return;
+            try {
+                const resp = await fetch(`api/bookmarks/${bm.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: bm.link_final_url }),
+                });
+                if (resp.status === 409) {
+                    this.showToast('That URL is already saved', 'error');
+                } else if (resp.ok) {
+                    await Promise.all([this.loadBookmarks(), this.loadLinkHealth()]);
+                    this.showToast('URL updated');
+                } else {
+                    this.showToast('Failed to update URL', 'error');
+                }
+            } catch (e) {
+                this.showToast('Failed to update URL', 'error');
+            }
+        },
+
+        // --- Bulk link check ---------------------------------------------------
+
+        openLinkCheck() {
+            this.linkCheck.open = true;
+            this.linkCheck.error = '';
+            const run = this.linkHealth.last_run;
+            if (run && !run.finished_at) {
+                // A sweep is already running (maybe from another tab) — attach.
+                this.linkCheck.run = run;
+                this.linkCheck.running = true;
+                this.startLinkCheckPolling();
+            } else if (!this.linkCheck.running) {
+                this.linkCheck.run = null;
+            }
+            this.$nextTick(() => this.$refs.linkCheckPassword?.focus());
+        },
+
+        get linkCheckProgress() {
+            const r = this.linkCheck.run;
+            if (!r || !r.total) return 0;
+            return Math.round((r.checked / r.total) * 100);
+        },
+
+        async fetchLinkCheckRun() {
+            try {
+                const resp = await fetch('api/admin/link-check', {
+                    headers: { 'X-Admin-Password': this.linkCheck.password },
+                });
+                if (resp.ok) return (await resp.json()).run;
+            } catch (e) {}
+            return null;
+        },
+
+        async startLinkCheck() {
+            if (!this.linkCheck.password || this.linkCheck.running) return;
+            this.linkCheck.error = '';
+            this.linkCheck.running = true;
+            try {
+                const resp = await fetch('api/admin/link-check', {
+                    method: 'POST',
+                    headers: { 'X-Admin-Password': this.linkCheck.password },
+                });
+                if (resp.status === 401) {
+                    this.linkCheck.running = false;
+                    this.linkCheck.error = 'Incorrect password. Try again.';
+                    this.linkCheck.password = '';
+                    this.$nextTick(() => this.$refs.linkCheckPassword?.focus());
+                    return;
+                }
+                if (resp.status === 409) {
+                    this.linkCheck.run = await this.fetchLinkCheckRun();
+                    this.startLinkCheckPolling();
+                    return;
+                }
+                if (!resp.ok) {
+                    this.linkCheck.running = false;
+                    this.linkCheck.error = 'Something went wrong. Try again.';
+                    return;
+                }
+                this.linkCheck.run = await resp.json();
+                this.startLinkCheckPolling();
+            } catch (e) {
+                this.linkCheck.running = false;
+                this.linkCheck.error = 'Something went wrong. Try again.';
+            }
+        },
+
+        startLinkCheckPolling() {
+            this.stopLinkCheckPolling();
+            this.linkCheck.poll = setInterval(async () => {
+                const run = await this.fetchLinkCheckRun();
+                if (run) this.linkCheck.run = run;
+                if (!run || run.finished_at) {
+                    this.stopLinkCheckPolling();
+                    this.linkCheck.running = false;
+                    await Promise.all([this.loadBookmarks(), this.loadLinkHealth()]);
+                    if (run && run.error) {
+                        this.showToast('Link check failed. See the logs.', 'error');
+                    } else if (run) {
+                        this.showToast(
+                            `Link check done — ${run.broken} broken, ${run.moved} moved, ${run.uncertain} unreachable`
+                        );
+                    }
+                }
+            }, 2000);
+        },
+
+        stopLinkCheckPolling() {
+            if (this.linkCheck.poll) {
+                clearInterval(this.linkCheck.poll);
+                this.linkCheck.poll = null;
+            }
         },
 
         async confirmDelete() {

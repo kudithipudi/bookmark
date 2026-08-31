@@ -21,6 +21,12 @@ from app.services.semantic_index import (
     get_semantic_index,
     invalidate_index,
 )
+from app.services.linkcheck import (
+    active_run,
+    create_run,
+    latest_run,
+    run_link_check,
+)
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -132,7 +138,31 @@ def _row_to_dict(row) -> dict:
         "tags": row["tags"] or "",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "link_status": row["link_status"],
+        "link_status_code": row["link_status_code"],
+        "link_final_url": row["link_final_url"],
+        "link_checked_at": row["link_checked_at"],
+        "link_fail_count": row["link_fail_count"] or 0,
     }
+
+
+def _require_admin(request: Request) -> None:
+    """Gate for admin-only routes. If no ADMIN_PASSWORD/DELETE_PASSWORD is
+    configured (e.g. local dev), the routes are open — same convention as
+    the delete endpoint."""
+    pw = settings.admin_password
+    if pw and request.headers.get("X-Admin-Password", "") != pw:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+
+_RUN_FIELDS = (
+    "id", "started_at", "finished_at", "total", "checked",
+    "ok", "broken", "moved", "uncertain", "error",
+)
+
+
+def _run_to_dict(row) -> dict | None:
+    return {k: row[k] for k in _RUN_FIELDS} if row is not None else None
 
 
 @app.post("/api/bookmarks", status_code=201)
@@ -191,6 +221,7 @@ async def list_bookmarks(
     request: Request,
     search: str | None = None,
     tag: str | None = None,
+    status: str | None = None,
 ):
     db = request.app.state.db
     query = "SELECT * FROM bookmarks WHERE 1=1"
@@ -204,6 +235,23 @@ async def list_bookmarks(
     if tag:
         query += " AND (',' || tags || ',' LIKE ?)"
         params.append(f"%,{tag},%")
+
+    # Link-health filter, populated by the bulk checker. "broken" is only the
+    # links that have failed the threshold number of consecutive sweeps;
+    # "review" is everything else the checker couldn't confirm as fine.
+    if status:
+        threshold = settings.link_check_broken_threshold
+        if status == "broken":
+            query += " AND link_status = 'broken' AND COALESCE(link_fail_count, 0) >= ?"
+            params.append(threshold)
+        elif status == "review":
+            query += (
+                " AND (link_status IN ('uncertain', 'moved')"
+                " OR (link_status = 'broken' AND COALESCE(link_fail_count, 0) < ?))"
+            )
+            params.append(threshold)
+        elif status == "ok":
+            query += " AND link_status = 'ok'"
 
     query += " ORDER BY created_at DESC"
 
@@ -222,7 +270,7 @@ async def list_bookmarks(
     # Semantic pass: nearest neighbors of the query embedding, appended after
     # exact matches so precise hits always rank first. Tag browsing is already
     # an exact filter, so vectors only apply to free-text search.
-    if search and not tag:
+    if search and not tag and not status:
         try:
             query_vector = await embed_query(search)
             if query_vector is not None:
@@ -264,6 +312,22 @@ async def update_bookmark(request: Request, bookmark_id: int, update: BookmarkUp
 
     fields = []
     params = []
+    if update.url is not None and update.url != existing["url"]:
+        dup = await db.execute(
+            "SELECT id FROM bookmarks WHERE url = ? AND id != ?",
+            (update.url, bookmark_id),
+        )
+        if await dup.fetchone():
+            raise HTTPException(status_code=409, detail="URL already exists")
+        fields.append("url = ?")
+        params.append(update.url)
+        # The URL changed (e.g. adopting a redirect target) — the old
+        # link-health verdict no longer applies; clear it for a re-check.
+        fields += [
+            "link_status = NULL", "link_status_code = NULL",
+            "link_final_url = NULL", "link_checked_at = NULL",
+            "link_fail_count = 0",
+        ]
     if update.title is not None:
         fields.append("title = ?")
         params.append(update.title)
@@ -322,6 +386,66 @@ async def delete_bookmark(request: Request, bookmark_id: int):
     invalidate_index(app.state)
     logger.info("Deleted bookmark %d", bookmark_id)
     return Response(status_code=204)
+
+
+@app.get("/api/link-health")
+async def link_health(request: Request):
+    """Counts backing the sidebar link-health filters, plus the last sweep."""
+    db = request.app.state.db
+    t = settings.link_check_broken_threshold
+    cursor = await db.execute(
+        "SELECT "
+        " SUM(CASE WHEN link_status = 'broken' AND COALESCE(link_fail_count, 0) >= ?"
+        "          THEN 1 ELSE 0 END) AS broken,"
+        " SUM(CASE WHEN link_status IN ('uncertain', 'moved')"
+        "          OR (link_status = 'broken' AND COALESCE(link_fail_count, 0) < ?)"
+        "          THEN 1 ELSE 0 END) AS review,"
+        " SUM(CASE WHEN link_status IS NOT NULL THEN 1 ELSE 0 END) AS checked,"
+        " COUNT(*) AS total "
+        "FROM bookmarks",
+        (t, t),
+    )
+    row = await cursor.fetchone()
+    run = await latest_run(db)
+    return {
+        "broken": row["broken"] or 0,
+        "review": row["review"] or 0,
+        "checked": row["checked"] or 0,
+        "total": row["total"] or 0,
+        "last_run": _run_to_dict(run),
+    }
+
+
+@app.post("/api/admin/link-check")
+async def start_link_check(request: Request):
+    _require_admin(request)
+    db = request.app.state.db
+    if await active_run(db):
+        raise HTTPException(status_code=409, detail="A link check is already running")
+
+    run_id = await create_run(db)
+    # Background task on this worker's event loop; progress is polled via GET
+    # (which either worker can serve — it reads link_check_runs).
+    task = asyncio.create_task(run_link_check(db, run_id))
+    request.app.state.link_check_task = task
+
+    def _log_crash(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception():
+            logger.error("Link check task crashed: %r", t.exception())
+
+    task.add_done_callback(_log_crash)
+    logger.info("Started link check run %s", run_id)
+    return _run_to_dict(await latest_run(db))
+
+
+@app.get("/api/admin/link-check")
+async def link_check_status(request: Request):
+    _require_admin(request)
+    db = request.app.state.db
+    return {
+        "run": _run_to_dict(await latest_run(db)),
+        "active": await active_run(db) is not None,
+    }
 
 
 async def _search_ids(request: Request, db, search: str) -> set[int]:

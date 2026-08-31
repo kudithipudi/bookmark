@@ -6,9 +6,9 @@
     <title>Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.2">
+    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.3">
     <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.3">
-    <script src="{{ prefix }}/static/app.js?v=1.0.8"></script>
+    <script src="{{ prefix }}/static/app.js?v=1.0.9"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -47,7 +47,15 @@
                         <span class="hidden sm:inline" x-text="adding ? 'Saving…' : 'Save'"></span>
                     </button>
                 </form>
-                <a href="{{ prefix }}/analytics" class="hidden sm:inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 shrink-0 ml-auto transition">
+                <button type="button" @click="openLinkCheck()"
+                    class="hidden sm:inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 shrink-0 ml-auto transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded">
+                    <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4 4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    Check links
+                    <span x-show="linkHealth.broken > 0" x-cloak
+                        class="inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-100 text-rose-700 text-[11px] font-semibold tabular-nums"
+                        x-text="linkHealth.broken"></span>
+                </button>
+                <a href="{{ prefix }}/analytics" class="hidden sm:inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 shrink-0 transition">
                     <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V9m4 8V5m4 12v-6M4 21h16"/></svg>
                     Analytics
                 </a>
@@ -92,13 +100,33 @@
         <!-- Sidebar: Tags -->
         <aside class="hidden lg:block w-52 shrink-0">
             <div class="sticky top-28">
-                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-1">Filter by tag</p>
-                <button @click="activeTag = ''; loadBookmarks(true)"
-                    :class="!activeTag ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'"
+                <button @click="activeTag = ''; healthFilter = ''; loadBookmarks(true)"
+                    :class="!activeTag && !healthFilter ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'"
                     class="w-full text-left px-3 py-1.5 rounded-lg text-sm mb-0.5 transition flex items-center justify-between">
                     <span>All bookmarks</span>
-                    <span class="text-xs tabular-nums" :class="!activeTag ? 'text-indigo-500' : 'text-slate-500'" x-text="totalBookmarks || ''"></span>
+                    <span class="text-xs tabular-nums" :class="!activeTag && !healthFilter ? 'text-indigo-500' : 'text-slate-500'" x-text="totalBookmarks || ''"></span>
                 </button>
+                <!-- Link health: populated by the bulk checker -->
+                <div x-show="linkHealth.checked > 0" x-cloak class="mt-1 space-y-0.5">
+                    <button x-show="linkHealth.broken > 0" @click="pickHealth('broken')"
+                        :class="healthFilter === 'broken' ? 'bg-rose-50 text-rose-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'"
+                        class="w-full text-left px-3 py-1.5 rounded-lg text-sm flex justify-between items-center transition">
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Broken links
+                        </span>
+                        <span class="text-xs tabular-nums" :class="healthFilter === 'broken' ? 'text-rose-500' : 'text-slate-500'" x-text="linkHealth.broken"></span>
+                    </button>
+                    <button x-show="linkHealth.review > 0" @click="pickHealth('review')"
+                        :class="healthFilter === 'review' ? 'bg-amber-50 text-amber-800 font-semibold' : 'text-slate-600 hover:bg-slate-100'"
+                        class="w-full text-left px-3 py-1.5 rounded-lg text-sm flex justify-between items-center transition">
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Needs review
+                        </span>
+                        <span class="text-xs tabular-nums" :class="healthFilter === 'review' ? 'text-amber-600' : 'text-slate-500'" x-text="linkHealth.review"></span>
+                    </button>
+                </div>
+
+                <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-1">Filter by tag</p>
                 <div class="mt-1 space-y-0.5">
                     <template x-for="t in tags" :key="t.tag">
                         <button @click="activeTag = t.tag; loadBookmarks(true)"
@@ -120,10 +148,18 @@
             <div class="lg:hidden relative mb-4">
                 <div x-ref="tagStrip" class="tag-strip" @scroll.passive="updateTagEdges()"
                     @resize.window.passive="updateTagEdges()">
-                    <button @click="clearTag($el)"
-                        :data-active="!activeTag ? 'yes' : 'no'"
-                        :class="!activeTag ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
+                    <button @click="healthFilter = ''; clearTag($el)"
+                        :data-active="!activeTag && !healthFilter ? 'yes' : 'no'"
+                        :class="!activeTag && !healthFilter ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'"
                         class="px-2.5 py-1 rounded-full text-xs font-medium transition">All</button>
+                    <button x-show="linkHealth.broken > 0" @click="pickHealth('broken'); focusTag($el)"
+                        :class="healthFilter === 'broken' ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-700'"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium transition"
+                        x-text="'Broken · ' + linkHealth.broken"></button>
+                    <button x-show="linkHealth.review > 0" @click="pickHealth('review'); focusTag($el)"
+                        :class="healthFilter === 'review' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-800'"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium transition"
+                        x-text="'Review · ' + linkHealth.review"></button>
                     <template x-for="t in tags" :key="'m-'+t.tag">
                         <button @click="pickTag(t.tag, $el)"
                             :data-active="activeTag === t.tag ? 'yes' : 'no'"
@@ -156,8 +192,8 @@
             <!-- Empty state -->
             <div x-show="!loading && bookmarks.length === 0" class="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
                 <svg class="w-14 h-14 mx-auto text-slate-200 mb-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
-                <p class="text-slate-500 font-medium">No bookmarks found</p>
-                <p class="text-slate-500 text-sm mt-1" x-text="searchQuery || activeTag ? 'Try a different search or tag' : 'Paste a URL above to get started'"></p>
+                <p class="text-slate-500 font-medium" x-text="healthFilter ? 'No links here' : 'No bookmarks found'"></p>
+                <p class="text-slate-500 text-sm mt-1" x-text="healthFilter === 'broken' ? 'Nothing is confirmed broken — nice.' : healthFilter === 'review' ? 'Nothing needs review right now.' : (searchQuery || activeTag ? 'Try a different search or tag' : 'Paste a URL above to get started')"></p>
             </div>
 
             <!-- Bookmark card (shared by both result sections) -->
@@ -208,6 +244,23 @@
                             <p class="text-xs text-slate-500 truncate mt-0.5" x-text="new URL(bm.url).hostname"></p>
                         </div>
                     </div>
+
+                    <!-- Link-health badge (from the bulk checker) -->
+                    <template x-if="linkBadge(bm)">
+                        <div class="mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium"
+                                :class="linkBadge(bm).cls">
+                                <svg class="w-3 h-3" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4 4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                                <span x-text="linkBadge(bm).label"></span>
+                            </span>
+                            <a x-show="bm.link_status !== 'moved'"
+                                :href="'https://web.archive.org/web/*/' + encodeURIComponent(bm.url)"
+                                target="_blank" rel="noopener"
+                                class="text-[11px] font-medium text-slate-500 hover:text-indigo-600 underline">Wayback</a>
+                            <button x-show="bm.link_status === 'moved' && bm.link_final_url" @click="adoptFinalUrl(bm)"
+                                class="text-[11px] font-medium text-amber-800 hover:text-amber-900 underline">Use new URL</button>
+                        </div>
+                    </template>
 
                     <!-- Description -->
                     <p x-show="bm.description"
@@ -332,6 +385,75 @@
                     class="flex-1 px-4 py-2.5 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-50 transition">
                     Delete
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Link check modal -->
+    <div x-show="linkCheck.open" x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        @keydown.escape.window="linkCheck.open = false">
+
+        <button type="button" aria-label="Close"
+            class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="linkCheck.open = false"></button>
+
+        <div role="dialog" aria-modal="true" aria-labelledby="linkcheck-modal-title"
+            class="relative bg-white rounded-xl border border-slate-200 shadow-sm w-full max-w-sm p-6 flex flex-col gap-4"
+            @click.stop x-trap.noscroll="linkCheck.open">
+
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-indigo-600" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4 4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                </div>
+                <div>
+                    <h2 id="linkcheck-modal-title" class="text-base font-semibold text-slate-900">Check all links</h2>
+                    <p class="text-sm text-slate-500 mt-0.5">Visits every bookmark and flags the ones that no longer resolve. Nothing is deleted.</p>
+                </div>
+            </div>
+
+            <!-- Progress (running or just finished) -->
+            <template x-if="linkCheck.run">
+                <div class="flex flex-col gap-2">
+                    <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div class="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                            :style="'width:' + linkCheckProgress + '%'"></div>
+                    </div>
+                    <p class="text-xs text-slate-500 tabular-nums">
+                        <span x-text="linkCheck.run.checked"></span> / <span x-text="linkCheck.run.total"></span> checked
+                        <span x-show="linkCheck.running"> · working…</span>
+                        <span x-show="!linkCheck.running && !linkCheck.run.error"> · done</span>
+                    </p>
+                    <div x-show="!linkCheck.running && !linkCheck.run.error" class="text-xs text-slate-600 flex flex-wrap gap-x-3 gap-y-0.5">
+                        <span><span class="font-semibold text-rose-600" x-text="linkCheck.run.broken"></span> broken</span>
+                        <span><span class="font-semibold text-amber-700" x-text="linkCheck.run.moved"></span> moved</span>
+                        <span><span class="font-semibold text-slate-500" x-text="linkCheck.run.uncertain"></span> unreachable</span>
+                        <span><span class="font-semibold text-emerald-600" x-text="linkCheck.run.ok"></span> ok</span>
+                    </div>
+                    <p x-show="linkCheck.run.error" class="text-xs text-rose-600">The check didn't finish. Check the logs and try again.</p>
+                </div>
+            </template>
+
+            <!-- Password entry (only before a run is started) -->
+            <template x-if="!linkCheck.run && !linkCheck.running">
+                <div class="flex flex-col gap-2">
+                    <input type="password" x-model="linkCheck.password"
+                        placeholder="Admin password" aria-label="Admin password"
+                        @keydown.enter="startLinkCheck()"
+                        x-ref="linkCheckPassword"
+                        class="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:border-indigo-500 transition">
+                    <p x-show="linkCheck.error" class="text-xs text-rose-600" x-text="linkCheck.error"></p>
+                </div>
+            </template>
+
+            <div class="flex gap-2">
+                <button @click="linkCheck.open = false"
+                    class="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition"
+                    x-text="linkCheck.running ? 'Run in background' : 'Close'"></button>
+                <button x-show="!linkCheck.run || (!linkCheck.running && linkCheck.run.finished_at)"
+                    @click="linkCheck.run ? (linkCheck.run = null) : startLinkCheck()"
+                    :disabled="!linkCheck.run && !linkCheck.password"
+                    class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition"
+                    x-text="linkCheck.run ? 'Run again' : 'Start check'"></button>
             </div>
         </div>
     </div>

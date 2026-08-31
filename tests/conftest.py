@@ -6,6 +6,7 @@ from app.db import (
     SQL_CREATE_TABLE,
     SQL_CREATE_RATE_LIMIT_TABLE,
     SQL_CREATE_RATE_LIMIT_INDEX,
+    SQL_CREATE_LINK_CHECK_RUNS_TABLE,
 )
 from app.config import settings
 import aiosqlite
@@ -17,6 +18,7 @@ def _isolate_settings(monkeypatch):
     # deletes on the production password.
     monkeypatch.setattr(settings, "openrouter_api_key", None)
     monkeypatch.setattr(settings, "delete_password", None)
+    monkeypatch.setattr(settings, "admin_password", None)
     monkeypatch.setattr(settings, "rate_limit_per_minute", 20)
     monkeypatch.setattr(settings, "rate_limit_window_seconds", 60)
     # Never load the real fastembed model in tests (seconds of startup +
@@ -32,6 +34,7 @@ async def db():
     await conn.execute(SQL_CREATE_TABLE)
     await conn.execute(SQL_CREATE_RATE_LIMIT_TABLE)
     await conn.execute(SQL_CREATE_RATE_LIMIT_INDEX)
+    await conn.execute(SQL_CREATE_LINK_CHECK_RUNS_TABLE)
     await conn.commit()
     yield conn
     await conn.close()

@@ -176,6 +176,11 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `SEMANTIC_SCORE_THRESHOLD` | `0.55` | Minimum cosine similarity to include a semantic match |
 | `SEMANTIC_SEARCH_LIMIT` | `12` | Max semantic matches per search |
 | `DELETE_PASSWORD` | (unset) | If set, deletes require `X-Delete-Password` header |
+| `ADMIN_PASSWORD` | (falls back to `DELETE_PASSWORD`) | If set, `/api/admin/*` (the bulk link checker) requires `X-Admin-Password` header |
+| `LINK_CHECK_CONCURRENCY` | `10` | Simultaneous outbound requests during a link-check sweep |
+| `LINK_CHECK_TIMEOUT_SECONDS` | `10.0` | Per-URL timeout during a sweep |
+| `LINK_CHECK_BROKEN_THRESHOLD` | `1` | Consecutive failing sweeps before a link counts as "broken" |
+| `LINK_CHECK_STALE_AFTER_SECONDS` | `1800` | An unfinished run older than this is treated as dead, not "still running" |
 | `DB_PATH` | `data/bookmarks.db` | SQLite database path (legacy alias: `DATABASE_PATH`) |
 | `LOG_LEVEL` | `info` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Max bookmark creations per IP per window |
@@ -188,12 +193,14 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `GET` | `/` | Serves the frontend |
 | `GET` | `/analytics` | Serves the analytics/visualization page |
 | `GET` | `/health` | Health check — `{"status": "ok"}`, no auth/DB |
-| `GET` | `/api/bookmarks` | List bookmarks. Query params: `search` (hybrid exact+semantic), `tag` (exact) |
+| `GET` | `/api/bookmarks` | List bookmarks. Query params: `search` (hybrid exact+semantic), `tag` (exact), `status` (`broken` \| `review` \| `ok`, from the link checker) |
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
-| `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"title", "description", "tags"}` |
+| `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"url", "title", "description", "tags"}` (changing `url` clears its link-health verdict) |
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
 | `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count. Query param: `search` scopes the tags/counts to bookmarks matching that search (exact+semantic); `"total"` always reflects the whole library |
 | `GET` | `/api/analytics` | Collection stats: totals, a zero-filled monthly `timeline`, `top_tags`, `top_domains` |
+| `GET` | `/api/link-health` | Link-checker counts (`broken`, `review`, `checked`, `total`) plus the last sweep |
+| `GET` `POST` | `/api/admin/link-check` | Poll / start a bulk link-check sweep (requires `X-Admin-Password` if configured) |
 
 ## License
 

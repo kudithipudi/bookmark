@@ -7,6 +7,7 @@ class BookmarkCreate(BaseModel):
 
 
 class BookmarkUpdate(BaseModel):
+    url: str | None = None
     title: str | None = None
     description: str | None = None
     tags: str | None = None
