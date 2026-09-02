@@ -35,7 +35,7 @@ Served at `https://lab.kudithipudi.org/bookmark/`.
 | Database | SQLite (aiosqlite, WAL mode) at `data/bookmarks.db` |
 | Frontend | Jinja2, Alpine.js 3.14.8 (pinned CDN + SRI), Tailwind CSS (built with standalone CLI) |
 | Scraping | httpx, BeautifulSoup4 |
-| AI Tagging | OpenRouter (model configurable, default `z-ai/glm-5.3-flash`) |
+| AI Tagging | OpenRouter (model configurable, default `google/gemini-2.5-flash-lite`) |
 | Semantic Search | fastembed (local ONNX, `BAAI/bge-small-en-v1.5`, 384-dim), brute-force cosine over an in-process vector cache |
 | App Server | gunicorn + uvicorn workers, unix socket `bookmark.sock` |
 | Reverse Proxy | nginx (subpath `/bookmark/`) |
@@ -168,7 +168,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 |----------|---------|-------------|
 | `ROOT_PATH` | (blank) | URL prefix used in templates (`{{ prefix }}`); nginx strips it before proxying |
 | `OPENROUTER_API_KEY` | (unset) | OpenRouter key for AI auto-tagging; tags are empty without it |
-| `OPENROUTER_MODEL` | `z-ai/glm-5.3-flash` | OpenRouter model slug for tagging |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash-lite` | OpenRouter model slug for tagging |
 | `LLM_TIMEOUT_SECONDS` | `15.0` | Timeout for OpenRouter calls |
 | `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model for semantic search |
 | `EMBEDDING_CACHE_DIR` | `.cache/fastembed` | Model download location (gitignored; keep inside the app dir — the systemd sandbox blocks `$HOME/.cache`) |

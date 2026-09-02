@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     root_path: str = ""
     openrouter_api_key: str | None = None
-    openrouter_model: str = "z-ai/glm-5.3-flash"
+    openrouter_model: str = "google/gemini-2.5-flash-lite"
     llm_timeout_seconds: float = 15.0
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     # Inside the app dir so it's writable under the systemd sandbox
