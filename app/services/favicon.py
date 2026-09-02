@@ -9,6 +9,25 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# One pooled client for the worker's lifetime (standards §8) rather than a
+# fresh connection pool + TLS handshake on every bookmark save.
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(follow_redirects=True, timeout=10.0)
+    return _client
+
+
+async def close_client() -> None:
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
+
 _EXT_BY_CONTENT_TYPE = {
     "image/x-icon": ".ico",
     "image/vnd.microsoft.icon": ".ico",
@@ -43,26 +62,25 @@ async def save_favicon(bookmark_url: str, favicon_url: str | None) -> str | None
         return None
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
-            resp = await client.get(favicon_url)
-            if resp.status_code != 200 or not resp.content:
-                logger.warning(
-                    "Favicon fetch for %s returned status %d", favicon_url, resp.status_code
-                )
-                return None
-            if len(resp.content) > settings.favicon_max_bytes:
-                logger.warning(
-                    "Favicon at %s exceeds %d bytes; skipping",
-                    favicon_url,
-                    settings.favicon_max_bytes,
-                )
-                return None
+        resp = await _get_client().get(favicon_url)
+        if resp.status_code != 200 or not resp.content:
+            logger.warning(
+                "Favicon fetch for %s returned status %d", favicon_url, resp.status_code
+            )
+            return None
+        if len(resp.content) > settings.favicon_max_bytes:
+            logger.warning(
+                "Favicon at %s exceeds %d bytes; skipping",
+                favicon_url,
+                settings.favicon_max_bytes,
+            )
+            return None
 
-            filename = _favicon_filename(bookmark_url, resp.headers.get("content-type"))
-            os.makedirs(settings.favicon_dir, exist_ok=True)
-            with open(os.path.join(settings.favicon_dir, filename), "wb") as f:
-                f.write(resp.content)
-            return f"/favicons/{filename}"
+        filename = _favicon_filename(bookmark_url, resp.headers.get("content-type"))
+        os.makedirs(settings.favicon_dir, exist_ok=True)
+        with open(os.path.join(settings.favicon_dir, filename), "wb") as f:
+            f.write(resp.content)
+        return f"/favicons/{filename}"
 
     except httpx.HTTPError as exc:
         logger.warning("HTTP error fetching favicon %s: %s", favicon_url, exc)

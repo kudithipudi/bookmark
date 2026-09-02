@@ -12,7 +12,7 @@ async def test_save_favicon_success(tmp_path):
     mock_response.headers = {"content-type": "image/x-icon"}
 
     with patch.object(settings, "favicon_dir", str(tmp_path)), \
-         patch("app.services.favicon.httpx.AsyncClient") as MockClient:
+         patch("app.services.favicon._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.return_value = mock_response
         instance.__aenter__ = AsyncMock(return_value=instance)
@@ -40,7 +40,7 @@ async def test_save_favicon_404(tmp_path):
     mock_response.content = b""
 
     with patch.object(settings, "favicon_dir", str(tmp_path)), \
-         patch("app.services.favicon.httpx.AsyncClient") as MockClient:
+         patch("app.services.favicon._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.return_value = mock_response
         instance.__aenter__ = AsyncMock(return_value=instance)
@@ -60,7 +60,7 @@ async def test_save_favicon_too_large(tmp_path):
     mock_response.headers = {"content-type": "image/png"}
 
     with patch.object(settings, "favicon_dir", str(tmp_path)), \
-         patch("app.services.favicon.httpx.AsyncClient") as MockClient:
+         patch("app.services.favicon._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.return_value = mock_response
         instance.__aenter__ = AsyncMock(return_value=instance)
@@ -79,7 +79,7 @@ async def test_save_favicon_stable_filename(tmp_path):
     mock_response.headers = {"content-type": "image/png"}
 
     with patch.object(settings, "favicon_dir", str(tmp_path)), \
-         patch("app.services.favicon.httpx.AsyncClient") as MockClient:
+         patch("app.services.favicon._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.return_value = mock_response
         instance.__aenter__ = AsyncMock(return_value=instance)

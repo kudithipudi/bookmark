@@ -13,7 +13,10 @@ from fastapi.templating import Jinja2Templates
 from app.config import settings
 from app.db import init_db, get_db, check_and_record_rate_limit
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
+from app import scraper
 from app.scraper import fetch_metadata
+from app.services import favicon as favicon_service
+from app.services import llm
 from app.services.favicon import save_favicon
 from app.services.llm import generate_tags
 from app.services.embeddings import embed_bookmark, embed_query, warmup_embeddings
@@ -52,6 +55,9 @@ async def lifespan(app: FastAPI):
         task.cancel()
     if hasattr(app.state, "db"):
         await app.state.db.close()
+    await llm.close_client()
+    await scraper.close_client()
+    await favicon_service.close_client()
 
 
 app = FastAPI(lifespan=lifespan)

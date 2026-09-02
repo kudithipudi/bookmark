@@ -22,7 +22,7 @@ async def test_fetch_metadata_success():
     mock_response.text = SAMPLE_HTML
     mock_response.url = httpx.URL("https://example.com/page")
 
-    with patch("app.scraper.httpx.AsyncClient") as MockClient:
+    with patch("app.scraper._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.return_value = mock_response
         instance.__aenter__ = AsyncMock(return_value=instance)
@@ -37,7 +37,7 @@ async def test_fetch_metadata_success():
 
 
 async def test_fetch_metadata_timeout():
-    with patch("app.scraper.httpx.AsyncClient") as MockClient:
+    with patch("app.scraper._get_client") as MockClient:
         instance = AsyncMock()
         instance.get.side_effect = httpx.TimeoutException("timeout")
         instance.__aenter__ = AsyncMock(return_value=instance)

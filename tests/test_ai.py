@@ -12,7 +12,7 @@ async def test_generate_tags_success():
     }
 
     with patch.object(settings, "openrouter_api_key", "test-key"):
-        with patch("app.services.llm.httpx.AsyncClient") as MockClient:
+        with patch("app.services.llm._get_client") as MockClient:
             instance = AsyncMock()
             instance.post.return_value = mock_response
             instance.__aenter__ = AsyncMock(return_value=instance)
@@ -38,7 +38,7 @@ async def test_generate_tags_api_error():
     mock_response.json.return_value = {"error": "Internal server error"}
 
     with patch.object(settings, "openrouter_api_key", "test-key"):
-        with patch("app.services.llm.httpx.AsyncClient") as MockClient:
+        with patch("app.services.llm._get_client") as MockClient:
             instance = AsyncMock()
             instance.post.return_value = mock_response
             instance.__aenter__ = AsyncMock(return_value=instance)
