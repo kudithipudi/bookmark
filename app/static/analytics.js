@@ -100,12 +100,6 @@ document.addEventListener('alpine:init', () => {
             return this.map.tagFilter;
         },
 
-        escapeXml(s) {
-            return String(s).replace(/[<>&"]/g, c => (
-                { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]
-            ));
-        },
-
         get galaxySvg() {
             const active = this.galaxyActiveTag;
             const interactive = this.galaxyInteractive;
@@ -114,10 +108,14 @@ document.addEventListener('alpine:init', () => {
                 const cy = this.galaxyY(p.y).toFixed(1);
                 const color = this.tagColor(p.tag);
                 const dim = (active != null && p.tag !== active) ? ' data-dim="true"' : '';
+                // data-id lives on the <g> so a pointer event on either child
+                // (enlarged hit circle or the small visible dot) resolves via
+                // closest('[data-id]'). Only advertised when interactive.
+                const id = interactive ? ` data-id="${p.id}"` : '';
                 const hit = interactive
-                    ? `<circle data-id="${p.id}" cx="${cx}" cy="${cy}" r="12" fill="transparent"></circle>`
+                    ? `<circle cx="${cx}" cy="${cy}" r="12" fill="transparent"></circle>`
                     : '';
-                return `<g class="galaxy-pt"${dim}>${hit}`
+                return `<g class="galaxy-pt"${id}${dim}>${hit}`
                     + `<circle class="galaxy-dot" cx="${cx}" cy="${cy}" r="4" fill="${color}"></circle>`
                     + `</g>`;
             }).join('');
