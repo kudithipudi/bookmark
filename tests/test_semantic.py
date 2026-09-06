@@ -95,6 +95,57 @@ async def test_index_refresh_picks_up_new_rows(db):
     assert len(hits) == 1
 
 
+# --- unit: 2D projection for the collection map -------------------------
+
+
+def _loaded_index(*blobs) -> SemanticIndex:
+    """A SemanticIndex with its matrix populated directly (no DB), mirroring
+    what refresh() does: stack, L2-normalize rows, ids are 1..n."""
+    index = SemanticIndex()
+    vectors = [decode_embedding(b) for b in blobs]
+    matrix = np.vstack(vectors).astype(np.float32)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    index._matrix = matrix / np.where(norms == 0, 1.0, norms)
+    index._ids = list(range(1, len(blobs) + 1))
+    return index
+
+
+def test_project_2d_empty_when_fewer_than_three():
+    assert SemanticIndex().project_2d() == []
+    assert _loaded_index(make_vector(1.0)).project_2d() == []
+    assert _loaded_index(make_vector(1.0), make_vector(0.0, 1.0)).project_2d() == []
+
+
+def test_project_2d_shape_range_and_order():
+    index = _loaded_index(
+        make_vector(1.0),
+        make_vector(0.0, 1.0),
+        make_vector(0.0, 0.0, 1.0),
+        make_vector(0.5, 0.5, 0.0, 0.3),
+    )
+    out = index.project_2d()
+
+    assert [row[0] for row in out] == [1, 2, 3, 4]
+    assert len(out) == 4
+    for _, x, y in out:
+        assert 0.0 <= x <= 1.0
+        assert 0.0 <= y <= 1.0
+    # min-max scaling puts at least one point at each extreme on each axis
+    assert min(x for _, x, _ in out) == 0.0
+    assert max(x for _, x, _ in out) == 1.0
+
+
+def test_project_2d_is_deterministic():
+    blobs = [make_vector(1.0), make_vector(0.0, 1.0), make_vector(1.0, 1.0),
+             make_vector(0.2, 0.9)]
+    assert _loaded_index(*blobs).project_2d() == _loaded_index(*blobs).project_2d()
+
+
+def test_project_2d_degenerate_identical_rows_center_at_half():
+    out = _loaded_index(make_vector(1.0), make_vector(1.0), make_vector(1.0)).project_2d()
+    assert out == [(1, 0.5, 0.5), (2, 0.5, 0.5), (3, 0.5, 0.5)]
+
+
 # --- endpoint: hybrid merge ----------------------------------------------
 
 

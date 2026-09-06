@@ -96,6 +96,38 @@ class SemanticIndex:
                 break
         return results
 
+    def project_2d(self) -> list[tuple[int, float, float]]:
+        """(bookmark_id, x, y) for every loaded embedding, projected to 2D
+        with PCA (top two principal components) and each axis min-max scaled
+        to [0, 1]. Same order as self._ids.
+
+        Returns [] when fewer than 3 embeddings are loaded: PCA on one or two
+        points carries no structure, and the caller shows an empty state.
+        The caller is responsible for freshness (see search()).
+        """
+        if self._matrix is None or self._matrix.shape[0] < 3:
+            return []
+
+        centered = self._matrix - self._matrix.mean(axis=0, keepdims=True)
+        # SVD of the centered matrix is PCA. full_matrices=False keeps U at
+        # (n, min(n, dim)); we take the first two components.
+        u, s, _ = np.linalg.svd(centered, full_matrices=False)
+        coords = u[:, :2] * s[:2]  # (n, 2)
+
+        def scale(column: np.ndarray) -> np.ndarray:
+            low = float(column.min())
+            high = float(column.max())
+            if high - low < 1e-12:
+                return np.full(column.shape, 0.5, dtype=np.float64)
+            return (column - low) / (high - low)
+
+        xs = scale(coords[:, 0])
+        ys = scale(coords[:, 1])
+        return [
+            (int(bid), round(float(px), 4), round(float(py), 4))
+            for bid, px, py in zip(self._ids, xs, ys)
+        ]
+
 
 def invalidate_index(app_state) -> None:
     """Force the next search to re-read embeddings from the database."""
