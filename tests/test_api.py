@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch
 import numpy as np
@@ -270,3 +273,84 @@ async def test_get_tags(client, db):
     assert tags["python"] == 2
     assert tags["web"] == 1
     assert tags["api"] == 1
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    ["not a url", "example.com", "javascript:alert(1)", "ftp://example.com", "file:///etc/passwd"],
+)
+async def test_create_bookmark_rejects_non_http_url(client, bad_url):
+    resp = await client.post("/api/bookmarks", json={"url": bad_url})
+    assert resp.status_code == 422
+
+
+async def test_update_bookmark_rejects_non_http_url(client, db):
+    await db.execute("INSERT INTO bookmarks (url) VALUES ('https://keep.com')")
+    await db.commit()
+    row = await (await db.execute("SELECT id FROM bookmarks LIMIT 1")).fetchone()
+
+    resp = await client.put(f"/api/bookmarks/{row['id']}", json={"url": "javascript:1"})
+    assert resp.status_code == 422
+
+
+async def test_create_bookmark_trims_url_whitespace(client, db):
+    async def fake_embed(*a, **k):
+        return None
+
+    with patch("app.main.fetch_metadata", return_value={}), \
+         patch("app.main.save_favicon", return_value=None), \
+         patch("app.main.generate_tags", return_value=[]), \
+         patch("app.main.embed_bookmark", side_effect=fake_embed):
+        resp = await client.post("/api/bookmarks", json={"url": "  https://trim.example  "})
+
+    assert resp.status_code == 201
+    assert resp.json()["url"] == "https://trim.example"
+
+
+# Tailwind's app/static/css/app.css is a committed, purged build. If a template
+# gains a utility class and the build is not re-run, that class silently
+# resolves to nothing (this happened once — the card/star ring and the mobile
+# callout shipped unstyled). Fail the suite instead of the page.
+
+_CLASS_ESCAPE = str.maketrans({c: "\\" + c for c in r":./[]"})
+
+# Marker classes Tailwind never emits a rule for (they only scope variants).
+_NON_RULE_CLASSES = {"group", "peer", "contents"}
+
+
+def _template_class_tokens() -> set[str]:
+    templates = Path(__file__).resolve().parents[1] / "app" / "templates"
+    tokens: set[str] = set()
+    for tpl in templates.glob("*.html"):
+        text = tpl.read_text()
+        # static class="..."  (not :class / x-bind:class, which hold JS)
+        for m in re.finditer(r'(?<![:\w-])class="([^"]*)"', text):
+            tokens.update(m.group(1).split())
+        # class-list literals inside :class / x-bind:class expressions —
+        # only those in a value position (after ? : , ( { [), so comparison
+        # operands like `bm.match === 'semantic'` are not mistaken for classes
+        for m in re.finditer(r'(?::class|x-bind:class)="([^"]*)"', text):
+            for literal in re.findall(r"[?:,({\[]\s*'([^']*)'", m.group(1)):
+                tokens.update(literal.split())
+    return {
+        t for t in tokens
+        if t and t not in _NON_RULE_CLASSES
+        and "{{" not in t and "{%" not in t and "$" not in t and "+" not in t
+    }
+
+
+def test_every_template_class_resolves_in_built_css():
+    static = Path(__file__).resolve().parents[1] / "app" / "static"
+    css = (static / "css" / "app.css").read_text() + "\n" + (static / "style.css").read_text()
+
+    missing = sorted(
+        token for token in _template_class_tokens()
+        if not re.search(
+            re.escape("." + token.translate(_CLASS_ESCAPE)) + r"[\s,{:>~.+\\]", css
+        )
+    )
+    assert not missing, (
+        "template classes with no rule in the built CSS — rebuild with "
+        "`npx tailwindcss -c tailwind.config.js -i app/static/css/input.css "
+        f"-o app/static/css/app.css --minify`: {missing}"
+    )
