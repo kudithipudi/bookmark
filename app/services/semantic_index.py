@@ -36,6 +36,10 @@ class SemanticIndex:
         self._ids: list[int] = []
         self._matrix: np.ndarray | None = None  # rows are L2-normalized
         self._loaded_at: float = 0.0
+        # Memoized project_2d() result, keyed on the _loaded_at stamp it was
+        # computed from, so refresh() (and invalidate_index) drop it for free.
+        self._projection: list[tuple[int, float, float]] | None = None
+        self._projection_at: float = -1.0
 
     @property
     def is_stale(self) -> bool:
@@ -95,6 +99,49 @@ class SemanticIndex:
             if len(results) >= settings.semantic_search_limit:
                 break
         return results
+
+    def project_2d(self) -> list[tuple[int, float, float]]:
+        """(bookmark_id, x, y) for every loaded embedding, projected to 2D
+        with PCA (top two principal components) and each axis min-max scaled
+        to [0, 1]. Same order as self._ids.
+
+        Returns [] when fewer than 3 embeddings are loaded: PCA on one or two
+        points carries no structure, and the caller shows an empty state.
+        The caller is responsible for freshness (see search()).
+
+        The result is memoized against self._loaded_at: the SVD is tens of
+        milliseconds at a few hundred rows and closer to a second at 10k, and
+        nothing about it changes until the index is reloaded.
+        """
+        if self._projection is not None and self._projection_at == self._loaded_at:
+            return self._projection
+
+        if self._matrix is None or self._matrix.shape[0] < 3:
+            self._projection = []
+            self._projection_at = self._loaded_at
+            return self._projection
+
+        centered = self._matrix - self._matrix.mean(axis=0, keepdims=True)
+        # SVD of the centered matrix is PCA. full_matrices=False keeps U at
+        # (n, min(n, dim)); we take the first two components.
+        u, s, _ = np.linalg.svd(centered, full_matrices=False)
+        coords = u[:, :2] * s[:2]  # (n, 2)
+
+        def scale(column: np.ndarray) -> np.ndarray:
+            low = float(column.min())
+            high = float(column.max())
+            if high - low < 1e-12:
+                return np.full(column.shape, 0.5, dtype=np.float64)
+            return (column - low) / (high - low)
+
+        xs = scale(coords[:, 0])
+        ys = scale(coords[:, 1])
+        self._projection = [
+            (int(bid), round(float(px), 4), round(float(py), 4))
+            for bid, px, py in zip(self._ids, xs, ys)
+        ]
+        self._projection_at = self._loaded_at
+        return self._projection
 
 
 def invalidate_index(app_state) -> None:

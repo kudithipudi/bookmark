@@ -7,6 +7,15 @@ document.addEventListener('alpine:init', () => {
         topDomains: [],
         hoverIndex: null,
 
+        // Collection map (semantic galaxy): lazily fetched when the panel
+        // scrolls near the viewport. `selectedId` drives both mouse-hover
+        // and touch-tap — there is no separate hover state.
+        map: {
+            points: [], clusters: [],
+            loaded: false, error: false,
+            selectedId: null, tagFilter: null,
+        },
+
         async init() {
             try {
                 const resp = await fetch('api/analytics');
@@ -29,6 +38,135 @@ document.addEventListener('alpine:init', () => {
                 this.topDomains = data.top_domains || [];
             } catch (e) {}
             this.loading = false;
+            this.$nextTick(() => this.observeMap());
+        },
+
+        observeMap() {
+            const el = this.$refs.mapPanel;
+            if (!el || !('IntersectionObserver' in window)) {
+                this.loadMap();
+                return;
+            }
+            const obs = new IntersectionObserver((entries) => {
+                if (entries.some(e => e.isIntersecting)) {
+                    obs.disconnect();
+                    this.loadMap();
+                }
+            }, { rootMargin: '200px' });
+            obs.observe(el);
+        },
+
+        async loadMap() {
+            try {
+                const resp = await fetch('api/analytics/map');
+                if (!resp.ok) throw new Error(resp.status);
+                const data = await resp.json();
+                this.map.points = data.points || [];
+                this.map.clusters = data.clusters || [];
+            } catch (e) {
+                this.map.error = true;
+            }
+            this.map.loaded = true;
+        },
+
+        galaxyPalette: [
+            '#6366f1', '#14b8a6', '#f59e0b', '#f43f5e',
+            '#0ea5e9', '#8b5cf6', '#10b981', '#f97316',
+        ],
+
+        tagColor(tag) {
+            const i = this.map.clusters.findIndex(c => c.tag === tag);
+            return (i >= 0 && i < 8) ? this.galaxyPalette[i] : '#94a3b8';
+        },
+
+        // viewBox 0 0 460 320, 16px inner padding; y is flipped so higher
+        // projected values sit toward the top.
+        galaxyX(x) { return 16 + x * (460 - 32); },
+        galaxyY(y) { return (320 - 16) - y * (320 - 32); },
+
+        // Beyond this many dots, drop per-point hit targets + interaction and
+        // just render the scatter (see the spec's >800 fallback).
+        get galaxyInteractive() { return this.map.points.length <= 800; },
+
+        get selectedPoint() {
+            return this.map.points.find(p => p.id === this.map.selectedId) || null;
+        },
+
+        // Which tag, if any, everything should be dimmed against right now.
+        get galaxyActiveTag() {
+            if (this.map.selectedId !== null) {
+                const p = this.selectedPoint;
+                return p ? p.tag : null;
+            }
+            return this.map.tagFilter;
+        },
+
+        escapeAttr(s) {
+            return String(s).replace(/[<>&"]/g, c => (
+                { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]
+            ));
+        },
+
+        // Deliberately does NOT read selectedId / tagFilter: x-html rebuilds
+        // the whole subtree whenever this getter's dependencies change, and
+        // re-parsing ~1300 nodes on every pointer move both stutters and
+        // defeats the .galaxy-pt opacity transition. Dimming is applied to
+        // the rendered nodes by applyGalaxyDim() instead.
+        get galaxySvg() {
+            const interactive = this.galaxyInteractive;
+            return this.map.points.map((p) => {
+                const cx = this.galaxyX(p.x).toFixed(1);
+                const cy = this.galaxyY(p.y).toFixed(1);
+                const color = this.tagColor(p.tag);
+                // data-id lives on the <g> so a pointer event on either child
+                // (enlarged hit circle or the small visible dot) resolves via
+                // closest('[data-id]'). Only advertised when interactive.
+                const id = interactive ? ` data-id="${p.id}"` : '';
+                // data-tag is what applyGalaxyDim() compares against; tags are
+                // user text, so it has to be attribute-escaped.
+                const tag = ` data-tag="${this.escapeAttr(p.tag ?? '')}"`;
+                const hit = interactive
+                    ? `<circle cx="${cx}" cy="${cy}" r="12" fill="transparent"></circle>`
+                    : '';
+                return `<g class="galaxy-pt"${id}${tag}>${hit}`
+                    + `<circle class="galaxy-dot" cx="${cx}" cy="${cy}" r="4" fill="${color}"></circle>`
+                    + `</g>`;
+            }).join('');
+        },
+
+        // Toggle the data-dim attribute on the already-rendered dots. Driven
+        // by x-effect on the map <svg>, so hover/filter changes tween instead
+        // of re-parsing the scatter.
+        applyGalaxyDim() {
+            const svg = this.$refs.galaxySvg;
+            if (!svg) return;
+            // Touch the point list so this re-runs after x-html repaints too
+            // (x-html is bound first; fresh nodes are undimmed either way).
+            void this.map.points.length;
+            const active = this.galaxyActiveTag;
+            svg.querySelectorAll('.galaxy-pt').forEach(g => {
+                const tag = g.getAttribute('data-tag');
+                g.toggleAttribute('data-dim', active != null && tag !== active);
+            });
+        },
+
+        onGalaxyHover(event) {
+            if (!this.galaxyInteractive) return;
+            const el = event.target.closest('[data-id]');
+            if (el) this.map.selectedId = Number(el.dataset.id);
+        },
+
+        onGalaxyClick(event) {
+            if (!this.galaxyInteractive) return;
+            const el = event.target.closest('[data-id]');
+            const id = el ? Number(el.dataset.id) : null;
+            // tap a dot to pin it; tap it again, or tap empty space, to clear
+            this.map.selectedId = (id === this.map.selectedId) ? null : id;
+        },
+
+        toggleTagFilter(tag) {
+            this.map.tagFilter = (this.map.tagFilter === tag) ? null : tag;
+            this.map.selectedId = null;
         },
 
         get maxTimelineCount() {

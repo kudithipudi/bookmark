@@ -22,6 +22,10 @@ document.addEventListener('alpine:init', () => {
         // LINK_CHECK_BROKEN_THRESHOLD on the server).
         brokenThreshold: 1,
 
+        // Search-results constellation: id of the semantic result currently
+        // hovered or focused, mirrored between its card and its star.
+        hoveredId: null,
+
         async init() {
             const params = new URLSearchParams(window.location.search);
             if (params.get('search')) this.searchQuery = params.get('search');
@@ -132,6 +136,124 @@ document.addEventListener('alpine:init', () => {
 
         matchPercent(score) {
             return Math.round((score || 0) * 100);
+        },
+
+        get prefersReducedMotion() {
+            return !!(window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        },
+
+        starLabel(text) {
+            const s = (text || '').trim();
+            return s.length > 15 ? s.slice(0, 14).trimEnd() + '…' : s;
+        },
+
+        scrollCardIntoView(id) {
+            const el = document.getElementById('bm-' + id);
+            if (el) el.scrollIntoView({
+                behavior: this.prefersReducedMotion ? 'auto' : 'smooth',
+                block: 'center',
+            });
+        },
+
+        escapeXml(s) {
+            return String(s).replace(/[<>&"]/g, c => (
+                { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]
+            ));
+        },
+
+        // Full inner markup for the banner <svg> (viewBox 0 0 640 190).
+        // Built as a string because Alpine's <template x-for> cloning breaks
+        // inside <svg> — same reason as barsSvg in analytics.js.
+        //
+        // Deliberately does NOT read hoveredId: x-html replaces the whole
+        // subtree whenever this getter's dependencies change, which would
+        // recreate every node on each hover (killing the CSS transitions and
+        // restarting the twinkle animation). Hover is applied to the already
+        // rendered nodes by applyConstellationHot() instead.
+        get constellationSvg() {
+            const pts = this.semanticBookmarks;
+            const n = pts.length;
+            if (n === 0) return '';
+
+            const CX = 320, CY = 98;
+            const RX_MIN = 46, RX_MAX = 150, RY_MIN = 30, RY_MAX = 70;
+            const scores = pts.map(b => b.score || 0);
+            const lo = Math.min(...scores), hi = Math.max(...scores);
+            const norm = s => (hi - lo < 1e-9) ? 0.55 : (s - lo) / (hi - lo);
+            const base = -Math.PI * 0.85;
+            const step = (1.55 * Math.PI) / Math.max(n - 1, 1);
+
+            const rings = [
+                ['150', '70', '0.5'], ['98', '50', '0.35'], ['46', '30', '0.25'],
+            ].map(([rx, ry, op]) =>
+                `<ellipse cx="${CX}" cy="${CY}" rx="${rx}" ry="${ry}" fill="none" stroke="#e2e8f0" stroke-opacity="${op}"></ellipse>`
+            ).join('');
+
+            const stars = pts.map((b, i) => {
+                const t = norm(b.score || 0);
+                const jitter = (((Math.imul(b.id, 2654435761) >>> 0) % 1000) / 1000 - 0.5) * 0.28;
+                const ang = base + i * step + jitter;
+                const x = +(CX + (RX_MAX - t * (RX_MAX - RX_MIN)) * Math.cos(ang)).toFixed(1);
+                const y = +(CY + (RY_MAX - t * (RY_MAX - RY_MIN)) * Math.sin(ang)).toFixed(1);
+                const dot = +(2 + t * 2.8).toFixed(1);
+                const lineOpacity = +(0.1 + t * 0.32).toFixed(2);
+                const labelY = Math.sin(ang) >= -0.2
+                    ? +(y + dot + 11).toFixed(1)
+                    : +(y - dot - 6).toFixed(1);
+                return `<g class="star-g" data-id="${b.id}">`
+                    + `<line class="star-line" x1="${CX}" y1="${CY}" x2="${x}" y2="${y}" stroke="#6366f1" stroke-opacity="${lineOpacity}" stroke-width="1"></line>`
+                    + `<circle class="star-dot" cx="${x}" cy="${y}" r="${dot}" fill="#6366f1" style="animation-delay:-${(b.id % 7) * 0.5}s"></circle>`
+                    + `<text class="star-label" x="${x}" y="${labelY}" text-anchor="middle" fill="#4f46e5" style="font-size:9px;font-weight:600">${this.escapeXml(this.starLabel(b.title || b.url))}</text>`
+                    + `</g>`;
+            }).join('');
+
+            const q = this.searchQuery.trim();
+            const caption = q.length > 40 ? q.slice(0, 39).trimEnd() + '…' : q;
+            // The caption sits above the star band (y ∈ [CY-RY_MAX, CY+RY_MAX]
+            // = [28, 168]) so no star or connector line can run through it.
+            const center = `<circle cx="${CX}" cy="${CY}" r="5.5" fill="#4f46e5"></circle>`
+                + `<circle cx="${CX}" cy="${CY}" r="10" fill="none" stroke="#4f46e5" stroke-opacity="0.3" stroke-width="1.5"></circle>`
+                + `<text x="${CX}" y="18" text-anchor="middle" fill="#64748b" style="font-size:10px;font-weight:600">“${this.escapeXml(caption)}”</text>`;
+
+            // Soft glow behind the query node (spec's render order: rings,
+            // halo, stars, center). The gradient id is namespaced so it can
+            // never collide with another inline-SVG gradient on the page.
+            const halo = `<defs><radialGradient id="constellationStarHalo">`
+                + `<stop offset="0%" stop-color="#6366f1" stop-opacity="0.16"></stop>`
+                + `<stop offset="100%" stop-color="#6366f1" stop-opacity="0"></stop>`
+                + `</radialGradient></defs>`
+                + `<circle cx="${CX}" cy="${CY}" r="70" fill="url(#constellationStarHalo)"></circle>`;
+
+            return rings + halo + stars + center;
+        },
+
+        // Toggle .is-hot on the already-rendered stars. Driven by x-effect on
+        // the banner <svg>, which re-runs whenever hoveredId changes and once
+        // after each x-html render, so the CSS transitions actually tween.
+        applyConstellationHot() {
+            const svg = this.$refs.constellationSvg;
+            if (!svg) return;
+            // Touch the result list too so this effect re-runs after x-html
+            // repaints the stars, not only on hover. x-html is bound first
+            // (same attribute bucket, earlier in the tag), so it repaints
+            // before this runs; if it ever ran first the fresh nodes would
+            // still come out with no .is-hot, which is the same end state.
+            void this.semanticBookmarks.length;
+            const hot = this.hoveredId;
+            svg.querySelectorAll('.star-g').forEach(g => {
+                g.classList.toggle('is-hot', Number(g.dataset.id) === hot);
+            });
+        },
+
+        constellationHover(event) {
+            const g = event.target.closest('[data-id]');
+            this.hoveredId = g ? Number(g.dataset.id) : null;
+        },
+
+        constellationClick(event) {
+            const g = event.target.closest('[data-id]');
+            if (g) this.scrollCardIntoView(Number(g.dataset.id));
         },
 
         async addBookmark() {

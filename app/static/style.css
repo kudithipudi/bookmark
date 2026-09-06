@@ -72,3 +72,65 @@ header {
     pointer-events: none;
     z-index: 1;
 }
+
+/* Collection map (analytics): dots injected via x-html like the timeline
+   bars, so dim/hover styling is plain CSS. */
+.galaxy-svg {
+    touch-action: manipulation;
+}
+
+.galaxy-pt {
+    transition: opacity 0.15s ease;
+}
+
+/* Only the interactive points carry data-id, and only those respond to a
+   click (see galaxyInteractive in analytics.js). */
+.galaxy-pt[data-id] {
+    cursor: pointer;
+}
+
+/* Attribute presence: applyGalaxyDim() toggles it, it carries no value. */
+.galaxy-pt[data-dim] {
+    opacity: 0.2;
+}
+
+/* Search-results constellation: stars injected via x-html (see app.js
+   constellationSvg); hover state is plain CSS keyed off .is-hot. The global
+   prefers-reduced-motion rule above already neutralizes the animation. */
+@keyframes twinkle {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+.star-g {
+    cursor: pointer;
+}
+
+.star-dot {
+    animation: twinkle 3.4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.star-label {
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.star-line {
+    transition: stroke-opacity 0.18s ease;
+}
+
+.star-g.is-hot .star-dot {
+    transform: scale(1.7);
+    filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.85));
+}
+
+.star-g.is-hot .star-label {
+    opacity: 1;
+}
+
+.star-g.is-hot .star-line {
+    stroke-opacity: 0.8;
+}
