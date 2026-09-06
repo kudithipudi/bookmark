@@ -7,6 +7,15 @@ document.addEventListener('alpine:init', () => {
         topDomains: [],
         hoverIndex: null,
 
+        // Collection map (semantic galaxy): lazily fetched when the panel
+        // scrolls near the viewport. `selectedId` drives both mouse-hover
+        // and touch-tap — there is no separate hover state.
+        map: {
+            points: [], clusters: [],
+            loaded: false, error: false,
+            selectedId: null, tagFilter: null,
+        },
+
         async init() {
             try {
                 const resp = await fetch('api/analytics');
@@ -29,6 +38,108 @@ document.addEventListener('alpine:init', () => {
                 this.topDomains = data.top_domains || [];
             } catch (e) {}
             this.loading = false;
+            this.$nextTick(() => this.observeMap());
+        },
+
+        observeMap() {
+            const el = this.$refs.mapPanel;
+            if (!el || !('IntersectionObserver' in window)) {
+                this.loadMap();
+                return;
+            }
+            const obs = new IntersectionObserver((entries) => {
+                if (entries.some(e => e.isIntersecting)) {
+                    obs.disconnect();
+                    this.loadMap();
+                }
+            }, { rootMargin: '200px' });
+            obs.observe(el);
+        },
+
+        async loadMap() {
+            try {
+                const resp = await fetch('api/analytics/map');
+                const data = await resp.json();
+                this.map.points = data.points || [];
+                this.map.clusters = data.clusters || [];
+            } catch (e) {
+                this.map.error = true;
+            }
+            this.map.loaded = true;
+        },
+
+        galaxyPalette: [
+            '#6366f1', '#14b8a6', '#f59e0b', '#f43f5e',
+            '#0ea5e9', '#8b5cf6', '#10b981', '#f97316',
+        ],
+
+        tagColor(tag) {
+            const i = this.map.clusters.findIndex(c => c.tag === tag);
+            return (i >= 0 && i < 8) ? this.galaxyPalette[i] : '#94a3b8';
+        },
+
+        // viewBox 0 0 460 320, 16px inner padding; y is flipped so higher
+        // projected values sit toward the top.
+        galaxyX(x) { return 16 + x * (460 - 32); },
+        galaxyY(y) { return (320 - 16) - y * (320 - 32); },
+
+        // Beyond this many dots, drop per-point hit targets + interaction and
+        // just render the scatter (see the spec's >800 fallback).
+        get galaxyInteractive() { return this.map.points.length <= 800; },
+
+        get selectedPoint() {
+            return this.map.points.find(p => p.id === this.map.selectedId) || null;
+        },
+
+        // Which tag, if any, everything should be dimmed against right now.
+        get galaxyActiveTag() {
+            if (this.map.selectedId !== null) {
+                const p = this.selectedPoint;
+                return p ? p.tag : null;
+            }
+            return this.map.tagFilter;
+        },
+
+        escapeXml(s) {
+            return String(s).replace(/[<>&"]/g, c => (
+                { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]
+            ));
+        },
+
+        get galaxySvg() {
+            const active = this.galaxyActiveTag;
+            const interactive = this.galaxyInteractive;
+            return this.map.points.map((p) => {
+                const cx = this.galaxyX(p.x).toFixed(1);
+                const cy = this.galaxyY(p.y).toFixed(1);
+                const color = this.tagColor(p.tag);
+                const dim = (active != null && p.tag !== active) ? ' data-dim="true"' : '';
+                const hit = interactive
+                    ? `<circle data-id="${p.id}" cx="${cx}" cy="${cy}" r="12" fill="transparent"></circle>`
+                    : '';
+                return `<g class="galaxy-pt"${dim}>${hit}`
+                    + `<circle class="galaxy-dot" cx="${cx}" cy="${cy}" r="4" fill="${color}"></circle>`
+                    + `</g>`;
+            }).join('');
+        },
+
+        onGalaxyHover(event) {
+            if (!this.galaxyInteractive) return;
+            const el = event.target.closest('[data-id]');
+            if (el) this.map.selectedId = Number(el.dataset.id);
+        },
+
+        onGalaxyClick(event) {
+            if (!this.galaxyInteractive) return;
+            const el = event.target.closest('[data-id]');
+            const id = el ? Number(el.dataset.id) : null;
+            // tap a dot to pin it; tap it again, or tap empty space, to clear
+            this.map.selectedId = (id === this.map.selectedId) ? null : id;
+        },
+
+        toggleTagFilter(tag) {
+            this.map.tagFilter = (this.map.tagFilter === tag) ? null : tag;
+            this.map.selectedId = null;
         },
 
         get maxTimelineCount() {

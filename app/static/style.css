@@ -72,3 +72,17 @@ header {
     pointer-events: none;
     z-index: 1;
 }
+
+/* Collection map (analytics): dots injected via x-html like the timeline
+   bars, so dim/hover styling is plain CSS. */
+.galaxy-svg {
+    touch-action: manipulation;
+}
+
+.galaxy-pt {
+    transition: opacity 0.15s ease;
+}
+
+.galaxy-pt[data-dim="true"] {
+    opacity: 0.2;
+}
