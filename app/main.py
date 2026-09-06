@@ -114,12 +114,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/analytics")
 async def analytics_page(request: Request):
-    return templates.TemplateResponse("analytics.html", {"request": request})
+    return templates.TemplateResponse(request, "analytics.html")
 
 
 def _client_ip(request: Request) -> str:
