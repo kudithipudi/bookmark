@@ -586,11 +586,17 @@ async def get_analytics_map(request: Request):
     if index.is_stale:
         await index.refresh(db)
 
-    coords = index.project_2d()
+    # The SVD is CPU-bound (tens of ms at a few hundred bookmarks, ~1s at 10k),
+    # so keep it off the event loop; SemanticIndex memoizes the result per load.
+    coords = await asyncio.to_thread(index.project_2d)
     if not coords:
         return {"points": [], "clusters": []}
 
     position = {bid: (px, py) for bid, px, py in coords}
+    # Best-effort join: a bookmark deleted between refresh() and this SELECT is
+    # simply absent from the result and drops out of `points`. The IN (?,…) list
+    # is bounded by SQLite's variable limit (999 by default on old builds,
+    # 32k+ since 3.32) — fine for a personal collection.
     placeholders = ",".join("?" * len(position))
     cursor = await db.execute(
         f"SELECT id, title, url, tags FROM bookmarks WHERE id IN ({placeholders})",

@@ -36,6 +36,10 @@ class SemanticIndex:
         self._ids: list[int] = []
         self._matrix: np.ndarray | None = None  # rows are L2-normalized
         self._loaded_at: float = 0.0
+        # Memoized project_2d() result, keyed on the _loaded_at stamp it was
+        # computed from, so refresh() (and invalidate_index) drop it for free.
+        self._projection: list[tuple[int, float, float]] | None = None
+        self._projection_at: float = -1.0
 
     @property
     def is_stale(self) -> bool:
@@ -104,9 +108,18 @@ class SemanticIndex:
         Returns [] when fewer than 3 embeddings are loaded: PCA on one or two
         points carries no structure, and the caller shows an empty state.
         The caller is responsible for freshness (see search()).
+
+        The result is memoized against self._loaded_at: the SVD is tens of
+        milliseconds at a few hundred rows and closer to a second at 10k, and
+        nothing about it changes until the index is reloaded.
         """
+        if self._projection is not None and self._projection_at == self._loaded_at:
+            return self._projection
+
         if self._matrix is None or self._matrix.shape[0] < 3:
-            return []
+            self._projection = []
+            self._projection_at = self._loaded_at
+            return self._projection
 
         centered = self._matrix - self._matrix.mean(axis=0, keepdims=True)
         # SVD of the centered matrix is PCA. full_matrices=False keeps U at
@@ -123,10 +136,12 @@ class SemanticIndex:
 
         xs = scale(coords[:, 0])
         ys = scale(coords[:, 1])
-        return [
+        self._projection = [
             (int(bid), round(float(px), 4), round(float(py), 4))
             for bid, px, py in zip(self._ids, xs, ys)
         ]
+        self._projection_at = self._loaded_at
+        return self._projection
 
 
 def invalidate_index(app_state) -> None:

@@ -103,7 +103,7 @@ def _loaded_index(*blobs) -> SemanticIndex:
     what refresh() does: stack, L2-normalize rows, ids are 1..n."""
     index = SemanticIndex()
     vectors = [decode_embedding(b) for b in blobs]
-    matrix = np.vstack(vectors).astype(np.float32)
+    matrix = np.vstack(vectors)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     index._matrix = matrix / np.where(norms == 0, 1.0, norms)
     index._ids = list(range(1, len(blobs) + 1))
@@ -133,12 +133,30 @@ def test_project_2d_shape_range_and_order():
     # min-max scaling puts at least one point at each extreme on each axis
     assert min(x for _, x, _ in out) == 0.0
     assert max(x for _, x, _ in out) == 1.0
+    assert min(y for _, _, y in out) == 0.0
+    assert max(y for _, _, y in out) == 1.0
 
 
 def test_project_2d_is_deterministic():
     blobs = [make_vector(1.0), make_vector(0.0, 1.0), make_vector(1.0, 1.0),
              make_vector(0.2, 0.9)]
     assert _loaded_index(*blobs).project_2d() == _loaded_index(*blobs).project_2d()
+
+
+def test_project_2d_memoizes_until_loaded_at_changes():
+    index = _loaded_index(
+        make_vector(1.0),
+        make_vector(0.0, 1.0),
+        make_vector(0.0, 0.0, 1.0),
+    )
+    first = index.project_2d()
+    # same load stamp -> the cached list itself comes back, no second SVD
+    assert index.project_2d() is first
+
+    index._loaded_at += 1.0  # what refresh() effectively does
+    second = index.project_2d()
+    assert second is not first
+    assert second == first
 
 
 def test_project_2d_degenerate_identical_rows_center_at_half():
