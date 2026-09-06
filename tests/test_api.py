@@ -138,6 +138,19 @@ async def test_analytics_page(client):
     assert "Bookmarks" in resp.text
 
 
+async def test_analytics_page_has_collection_map_panel(client):
+    resp = await client.get("/analytics")
+    assert resp.status_code == 200
+    assert "Collection map" in resp.text
+    assert 'x-html="galaxySvg"' in resp.text
+
+
+async def test_index_page_has_constellation_banner(client):
+    resp = await client.get("/")
+    assert resp.status_code == 200
+    assert 'x-html="constellationSvg"' in resp.text
+
+
 async def test_get_analytics_empty(client):
     resp = await client.get("/api/analytics")
     assert resp.status_code == 200
