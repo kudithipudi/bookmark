@@ -7,8 +7,8 @@
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.4">
-    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.4">
-    <script src="{{ prefix }}/static/app.js?v=1.0.10"></script>
+    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.5">
+    <script src="{{ prefix }}/static/app.js?v=1.0.11"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -337,9 +337,10 @@
                     <!-- Decorative: how close each result sits to the search, by meaning -->
                     <div class="mb-5 rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/70 overflow-hidden">
                         <svg viewBox="0 0 640 190" class="w-full block" style="max-height:190px" aria-hidden="true"
+                            x-ref="constellationSvg"
                             @mouseover="constellationHover($event)" @mouseleave="hoveredId = null"
                             @click="constellationClick($event)"
-                            x-html="constellationSvg"></svg>
+                            x-html="constellationSvg" x-effect="applyConstellationHot()"></svg>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                         <template x-for="bm in semanticBookmarks" :key="bm.id">

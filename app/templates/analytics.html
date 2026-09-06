@@ -6,8 +6,8 @@
     <title>Analytics · Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.4">
-    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.4">
-    <script src="{{ prefix }}/static/analytics.js?v=1.0.2"></script>
+    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.5">
+    <script src="{{ prefix }}/static/analytics.js?v=1.0.3"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -110,12 +110,21 @@
 
                 <div x-show="!map.loaded" class="animate-pulse bg-slate-100 rounded-lg" style="height:320px"></div>
 
-                <p x-show="map.loaded && map.points.length === 0"
+                <p x-show="map.loaded && map.error"
+                    class="text-sm text-slate-500 py-12 text-center">
+                    Couldn't load the collection map. Refresh to try again.</p>
+
+                <p x-show="map.loaded && !map.error && map.points.length === 0"
                     class="text-sm text-slate-500 py-12 text-center">
                     Save a few more bookmarks to see your collection map.</p>
 
+                <!-- mouseleave lives on this wrapper, not the <svg>: the callout is
+                     a sibling inside it, so moving from a dot onto the callout to
+                     click "Open" doesn't clear the selection — only leaving the
+                     whole map does. -->
                 <div x-show="map.loaded && map.points.length > 0" class="relative"
-                    tabindex="-1" @keydown.escape="map.selectedId = null">
+                    tabindex="-1" @keydown.escape="map.selectedId = null"
+                    @mouseleave="map.selectedId = null">
 
                     <div class="flex flex-wrap gap-x-3 gap-y-1 mb-2" x-show="map.clusters.length > 0">
                         <template x-for="c in map.clusters" :key="'lg-' + c.tag">
@@ -130,9 +139,11 @@
 
                     <svg viewBox="0 0 460 320" class="galaxy-svg w-full block" style="max-height:320px"
                         role="img"
-                        :aria-label="map.points.length + ' bookmarks across ' + map.clusters.length + ' topic clusters'"
+                        :aria-label="map.points.length + (map.points.length === 1 ? ' bookmark' : ' bookmarks')
+                            + ' across ' + map.clusters.length + (map.clusters.length === 1 ? ' topic cluster' : ' topic clusters')"
+                        x-ref="galaxySvg"
                         @mouseover="onGalaxyHover($event)" @click="onGalaxyClick($event)"
-                        x-html="galaxySvg"></svg>
+                        x-html="galaxySvg" x-effect="applyGalaxyDim()"></svg>
 
                     <p x-show="!galaxyInteractive" class="text-xs text-slate-500 mt-1"
                         x-text="'Showing ' + map.points.length + ' bookmarks — hovering is off at this size; open one from the lists below.'"></p>

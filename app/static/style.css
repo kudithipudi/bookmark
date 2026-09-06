@@ -83,7 +83,14 @@ header {
     transition: opacity 0.15s ease;
 }
 
-.galaxy-pt[data-dim="true"] {
+/* Only the interactive points carry data-id, and only those respond to a
+   click (see galaxyInteractive in analytics.js). */
+.galaxy-pt[data-id] {
+    cursor: pointer;
+}
+
+/* Attribute presence: applyGalaxyDim() toggles it, it carries no value. */
+.galaxy-pt[data-dim] {
     opacity: 0.2;
 }
 
@@ -93,6 +100,10 @@ header {
 @keyframes twinkle {
     0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
+}
+
+.star-g {
+    cursor: pointer;
 }
 
 .star-dot {

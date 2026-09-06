@@ -59,6 +59,7 @@ document.addEventListener('alpine:init', () => {
         async loadMap() {
             try {
                 const resp = await fetch('api/analytics/map');
+                if (!resp.ok) throw new Error(resp.status);
                 const data = await resp.json();
                 this.map.points = data.points || [];
                 this.map.clusters = data.clusters || [];
@@ -100,25 +101,53 @@ document.addEventListener('alpine:init', () => {
             return this.map.tagFilter;
         },
 
+        escapeAttr(s) {
+            return String(s).replace(/[<>&"]/g, c => (
+                { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]
+            ));
+        },
+
+        // Deliberately does NOT read selectedId / tagFilter: x-html rebuilds
+        // the whole subtree whenever this getter's dependencies change, and
+        // re-parsing ~1300 nodes on every pointer move both stutters and
+        // defeats the .galaxy-pt opacity transition. Dimming is applied to
+        // the rendered nodes by applyGalaxyDim() instead.
         get galaxySvg() {
-            const active = this.galaxyActiveTag;
             const interactive = this.galaxyInteractive;
             return this.map.points.map((p) => {
                 const cx = this.galaxyX(p.x).toFixed(1);
                 const cy = this.galaxyY(p.y).toFixed(1);
                 const color = this.tagColor(p.tag);
-                const dim = (active != null && p.tag !== active) ? ' data-dim="true"' : '';
                 // data-id lives on the <g> so a pointer event on either child
                 // (enlarged hit circle or the small visible dot) resolves via
                 // closest('[data-id]'). Only advertised when interactive.
                 const id = interactive ? ` data-id="${p.id}"` : '';
+                // data-tag is what applyGalaxyDim() compares against; tags are
+                // user text, so it has to be attribute-escaped.
+                const tag = ` data-tag="${this.escapeAttr(p.tag ?? '')}"`;
                 const hit = interactive
                     ? `<circle cx="${cx}" cy="${cy}" r="12" fill="transparent"></circle>`
                     : '';
-                return `<g class="galaxy-pt"${id}${dim}>${hit}`
+                return `<g class="galaxy-pt"${id}${tag}>${hit}`
                     + `<circle class="galaxy-dot" cx="${cx}" cy="${cy}" r="4" fill="${color}"></circle>`
                     + `</g>`;
             }).join('');
+        },
+
+        // Toggle the data-dim attribute on the already-rendered dots. Driven
+        // by x-effect on the map <svg>, so hover/filter changes tween instead
+        // of re-parsing the scatter.
+        applyGalaxyDim() {
+            const svg = this.$refs.galaxySvg;
+            if (!svg) return;
+            // Touch the point list so this re-runs after x-html repaints too
+            // (x-html is bound first; fresh nodes are undimmed either way).
+            void this.map.points.length;
+            const active = this.galaxyActiveTag;
+            svg.querySelectorAll('.galaxy-pt').forEach(g => {
+                const tag = g.getAttribute('data-tag');
+                g.toggleAttribute('data-dim', active != null && tag !== active);
+            });
         },
 
         onGalaxyHover(event) {
