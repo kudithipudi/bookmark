@@ -109,10 +109,13 @@ node (filled dot + ring) and the caption `<text>` showing
 .star-g.is-hot .star-dot  { transform: scale(1.7); filter: drop-shadow(0 0 5px rgba(99,102,241,.85)); }
 .star-g.is-hot .star-label { opacity: 1; }
 .star-g.is-hot .star-line  { stroke-opacity: .8; }
-@media (prefers-reduced-motion: reduce) {
-  .star-dot, .star-label, .star-line { animation: none; transition: none; }
-}
 ```
+
+`style.css` already carries a **global** `@media (prefers-reduced-motion:
+reduce)` rule that forces `animation-duration`/`transition-duration` to
+`0.01ms` on `*` — so the twinkle and every hover transition here are already
+neutralized on that setting. No per-feature media query needed; do **not**
+add a second one.
 
 Per-dot `animation-delay: -<n>s` (inline, derived from `id % 7`) so stars
 don't twinkle in unison.
@@ -132,6 +135,22 @@ don't twinkle in unison.
 - Very long query caption: `<text>` is not wrapped; cap display to ~40 chars
   + `…` in `constellation()` output (`captionText`).
 - Many results (limit is 12, `semantic_search_limit`): 12 stars fit the sweep.
+
+### Mobile / touch (A)
+
+- The banner `<svg>` is `w-full` with a fixed `0 0 640 190` viewBox, so at a
+  ~343px content width it renders ~102px tall with no horizontal scroll — it
+  self-scales, no breakpoint needed. Result cards are already single-column
+  (`grid-cols-1`) below it.
+- There is no hover on touch, and the card↔star highlight is a **desktop
+  enhancement only**. On touch the constellation is purely ambient — it still
+  conveys relative closeness by distance/size, which is the point. The `%
+  match` bar on each card carries the exact number. No tap handler on stars
+  (a ~2–5px target scaled down on mobile isn't a reliable tap target and the
+  value doesn't justify adding oversized hit circles here).
+- `@focusin`/`@focusout` on the card still fire on mobile when a control
+  inside the card (Open / Edit) is tapped — harmless, briefly lights the star.
+- Star labels are hover-only, so their small rendered size on mobile is moot.
 
 ## Feature B — Collection map (semantic galaxy)
 
@@ -179,7 +198,10 @@ async def get_analytics_map(request: Request):
 
 ### Frontend (`app/static/analytics.js`, `app/templates/analytics.html`)
 
-- New Alpine state: `map: { points: [], clusters: [], loaded: false, hoverId: null }`.
+- New Alpine state:
+  `map: { points: [], clusters: [], loaded: false, selectedId: null }`.
+  One `selectedId` drives both mouse hover and touch tap — there is no
+  separate hover state (see "Interaction model" below).
 - **Lazy load:** an `x-intersect` (Alpine plugin not present) — instead use a
   plain `IntersectionObserver` created in `init()` watching the panel's
   container `$refs.mapPanel`; on first intersect, `fetch('api/analytics/map')`,
@@ -188,29 +210,49 @@ async def get_analytics_map(request: Request):
   rose-500, sky-500, violet-500, emerald-500, orange-500 hexes) keyed by the
   `clusters` order; `tagColor(tag)` returns the palette color or
   `#94a3b8` (slate-400, "other").
-- **SVG:** `viewBox="0 0 460 300"`, inner padding 16px; map point `x,y` in
-  `[0,1]` to `[pad, 460-pad] × [300-pad, pad]` (flip y).
+- **SVG:** `viewBox="0 0 460 320"`, inner padding 16px; map point `x,y` in
+  `[0,1]` to `[pad, 460-pad] × [304-pad, pad]` (flip y). `w-full`, so it
+  self-scales — at ~343px content width it renders ~239px tall, no horizontal
+  scroll. `touch-action: manipulation` on the `<svg>`.
 - **Rendering:** same `x-html` string-building approach the file already uses
   for `barsSvg` (Alpine's `<template>` cloning breaks inside `<svg>` — see the
-  existing comment at `analytics.js:56`). Build `<a>` elements wrapping each
-  `<circle>`:
-  `<a href="<url>" target="_blank" rel="noopener"><circle data-id cx cy r=4 fill=<color> /></a>`.
-  - `>800` points: drop the `<a>` wrappers, render bare `<circle>`s, and show a
-    line under the panel: "Showing 900 bookmarks — open one from the list
-    below." (list = existing top-domains etc.)
-- **Hover:** event-delegated `@mouseover`/`@mouseleave` on the `<svg>` (mirror
-  `onBarHover`): set `map.hoverId`; a CSS rule dims non-matching-tag dots
-  (`.galaxy-dot { transition: opacity .15s } svg[data-dim] .galaxy-dot:not([data-tag="<t>"]) { opacity:.2 }`)
-  — simplest: toggle a class on the `<svg>` and set a CSS custom prop for the
-  active tag, or just set `opacity` per-dot in a recomputed `x-html`. Decision:
-  recompute is simplest and n is small; on hover rebuild the markup string with
-  the dimming applied.
-- **Tooltip:** a positioned `<div>` (not SVG `<title>`, which is slow to show)
-  showing `point.title` + `point.domain`, following the hovered dot; hidden
-  when `hoverId === null`.
+  existing comment at `analytics.js:56`). Per point, a `<g class="galaxy-pt"
+  data-id data-tag>` containing:
+  - a transparent hit target `<circle r="12" fill="transparent">` (so the tap
+    target is ~24px on mobile even though the visible dot is small),
+  - the visible `<circle class="galaxy-dot" r="4" :fill="tagColor(tag)">`.
+  The `<g>` is **not** wrapped in `<a>` — navigation happens from the callout
+  (below), which keeps a single code path for mouse and touch and avoids
+  accidental navigation on a mistap. Middle-click/⌘-click is a desktop-only
+  loss we accept; the callout's Open link is a real `<a>` and covers
+  keyboard.
+  - `>800` points: skip the per-point hit circles (render bare
+    `<circle class="galaxy-dot">` only) and show under the panel: "Showing
+    N bookmarks — hovering is disabled at this size; open one from the lists
+    below."
+- **Interaction model (one path for hover + tap):**
+  - Desktop: event-delegated `@mouseover`/`@mouseleave` on the `<svg>` sets /
+    clears `map.selectedId` from the nearest `[data-id]`.
+  - Touch / click: event-delegated `@click` on the `<svg>` sets
+    `map.selectedId` to the tapped dot; a tap with no dot under it (or a tap
+    on the already-selected dot) clears it. `@click` also covers the
+    "no hover" case on hybrid devices.
+  - `@keydown.escape` on the panel clears `map.selectedId`.
+  - While `selectedId` is set, dots whose `data-tag` differs from the
+    selected dot's tag get `opacity:.2` (CSS rule keyed off a class +
+    `data-tag` attr on the `<svg>`; no markup rebuild).
+- **Callout (replaces the floating tooltip):** when `map.selectedId` is set,
+  show a callout with the point's `title`, `domain`, and an
+  `<a href target="_blank" rel="noopener">Open ↗</a>`.
+  - `sm+`: positioned near the dot (clamped to stay inside the panel).
+  - `< sm`: a full-width bar pinned to the bottom of the panel, so it never
+    overflows a narrow screen or sits under the finger.
+  - The Open link is the only navigation affordance and is keyboard-focusable.
 - **Legend:** row of swatches from `map.clusters` + an "other" swatch, each a
-  `<button>` that sets `map.hoverId`-equivalent tag filter on click (nice to
-  have; can ship without).
+  `<button type="button">` (already gets `touch-action: manipulation` from the
+  global rule) that sets a `map.tagFilter`; when set, non-matching dots dim
+  the same way. Tapping the active swatch again clears it. Nice to have — can
+  ship without if step 2 runs long.
 - **`role="img"`** on the `<svg>` with
   `:aria-label="map.points.length + ' bookmarks across ' + map.clusters.length + ' topic clusters'"`.
 - **States:** `map.loaded && map.points.length === 0` →
@@ -229,9 +271,28 @@ bookmark; nearby dots are about similar things."
 - `app/services/semantic_index.py` — `project_2d()`.
 - `app/main.py` — `/api/analytics/map` route.
 - `app/static/analytics.js` — `map` state, IntersectionObserver, `tagColor()`,
-  `galaxySvg` getter, hover handlers, tooltip position.
-- `app/templates/analytics.html` — panel markup; bump `?v=` for `analytics.js`.
-- `app/static/style.css` — `.galaxy-dot` transition + dim rule.
+  `galaxySvg` getter, `@mouseover`/`@click`/`@keydown.escape` handlers,
+  callout positioning.
+- `app/templates/analytics.html` — panel markup (SVG + callout, `sm`
+  breakpoint on callout position); bump `?v=` for `analytics.js`.
+- `app/static/style.css` — `.galaxy-dot` opacity transition + the
+  selected/filter dim rule; `touch-action: manipulation` on `.galaxy-svg`.
+
+### Mobile / touch (B)
+
+- SVG `w-full` + fixed viewBox → self-scales, ~239px tall at 343px width, no
+  horizontal scroll. Panel sits in the normal single-column analytics flow.
+- Every dot has a transparent `r=12` hit circle → ~24px tap target regardless
+  of the small visible radius.
+- No `<a>`-wrapped dots → a mistap never navigates. Selection (tap) shows the
+  callout; the callout's `Open ↗` link is the single deliberate navigation.
+- `< sm`: callout is a full-width bottom bar inside the panel — never
+  overflows the viewport, never sits under the finger.
+- `touch-action: manipulation` on the SVG kills the 300ms double-tap-zoom
+  delay; page zoom itself stays enabled (no `user-scalable=no` anywhere).
+- Legend swatches are `<button>`s — full tap targets, wrap freely.
+- Both templates already ship `<meta name="viewport"
+  content="width=device-width, initial-scale=1.0">` and no zoom-blocking.
 
 ### Tests (B)
 
@@ -253,12 +314,18 @@ bookmark; nearby dots are about similar things."
 ## Build order
 
 1. `project_2d()` + `/api/analytics/map` + their tests (TDD).
-2. Collection-map panel wired to the endpoint (lazy load, palette, hover,
-   tooltip, states).
+2. Collection-map panel wired to the endpoint (lazy load, palette,
+   selection + callout, dim-by-tag, states).
 3. Constellation: `constellation()` getter + banner SVG + card interaction.
-4. Shared `style.css` additions; `?v=` bumps; manual pass in the running app —
-   many / one / zero semantic results, reduced-motion on, keyboard tab through
-   result cards, analytics panel with a seeded collection.
+4. Shared `style.css` additions; `?v=` bumps; manual pass in the running app
+   at **both a desktop width and a 375px mobile viewport**:
+   - search: many / one / zero semantic results; reduced-motion on; keyboard
+     tab through result cards lights the right star; no horizontal scroll on
+     the banner at 375px.
+   - analytics: seeded collection; lazy-load fires on scroll; tap a dot on a
+     touch emulator → callout appears as a bottom bar, `Open ↗` works, tap
+     elsewhere dismisses; legend filter dims correctly; `>800`-point fallback
+     copy shows; empty-collection copy shows.
 
 ## Risks / open questions
 
@@ -270,3 +337,8 @@ bookmark; nearby dots are about similar things."
   runs long.
 - Palette collision with existing teal domain bars is intentional (shared
   system), not a conflict.
+- Mobile: both features degrade to non-interactive ambient visuals only where
+  hover was the affordance (constellation entirely; galaxy keeps tap). This is
+  a deliberate call, not a gap — the exact numbers live in the cards / tag
+  lists, which are the accessible + small-screen path. No dedicated mobile
+  layout, no separate breakpoint work beyond the callout position swap.
