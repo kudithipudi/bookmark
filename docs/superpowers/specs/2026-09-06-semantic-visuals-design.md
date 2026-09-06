@@ -192,7 +192,9 @@ async def get_analytics_map(request: Request):
   colored set, everything else (and `None`) renders as "other" grey. Return
   `clusters: [{"tag": t, "count": n}]` for those top 8.
 - Response:
-  `{"points": [{"id","x","y","title","domain","tag"}], "clusters": [...]}`
+  `{"points": [{"id","x","y","title","domain","url","tag"}], "clusters": [...]}`
+  (`url` is needed by the callout's "Open" link; `domain` is kept
+  pre-derived so the frontend needn't parse it.)
 - Cost note: SVD on `(n, 384)` for `n` in the hundreds is a few ms; still,
   the frontend lazy-loads this (below) so it never blocks first paint.
 
@@ -307,7 +309,8 @@ bookmark; nearby dots are about similar things."
 - `GET /api/analytics/map` with an empty DB → `200`,
   `{"points": [], "clusters": []}`.
 - With ≥3 seeded bookmarks that have embeddings → `points` length matches,
-  each point has the six keys, `x`/`y` are floats in `[0, 1]`, `clusters` is a
+  each point has the seven keys (`id,x,y,title,domain,url,tag`), `x`/`y` are
+  floats in `[0, 1]`, `clusters` is a
   list of `{tag, count}`. (Follow existing embedding-seeding helpers in the
   test file / `conftest.py`.)
 
