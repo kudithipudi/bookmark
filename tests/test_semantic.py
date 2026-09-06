@@ -107,6 +107,7 @@ def _loaded_index(*blobs) -> SemanticIndex:
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     index._matrix = matrix / np.where(norms == 0, 1.0, norms)
     index._ids = list(range(1, len(blobs) + 1))
+    index._snapshot = (index._matrix, index._ids, index._loaded_at)
     return index
 
 
@@ -153,10 +154,30 @@ def test_project_2d_memoizes_until_loaded_at_changes():
     # same load stamp -> the cached list itself comes back, no second SVD
     assert index.project_2d() is first
 
-    index._loaded_at += 1.0  # what refresh() effectively does
+    # bump the snapshot's stamp, the way refresh() republishing it does
+    matrix, ids, stamp = index._snapshot
+    index._snapshot = (matrix, ids, stamp + 1.0)
     second = index.project_2d()
     assert second is not first
     assert second == first
+
+
+def test_project_2d_reads_a_coherent_snapshot_not_live_attrs():
+    # project_2d() runs in a worker thread while refresh() reassigns
+    # _matrix/_ids/_loaded_at on the event loop. It must work off the single
+    # _snapshot triple, never the individually-updated attributes.
+    index = _loaded_index(
+        make_vector(1.0), make_vector(0.0, 1.0), make_vector(0.0, 0.0, 1.0)
+    )
+    expected = index.project_2d()
+
+    # Simulate being caught mid-refresh: the live attrs are now torn
+    # (a longer id list than the matrix has rows), but the snapshot is intact.
+    index._projection = None
+    index._matrix = None
+    index._ids = [99, 100, 101, 102, 103]
+
+    assert index.project_2d() == expected
 
 
 def test_project_2d_degenerate_identical_rows_center_at_half():

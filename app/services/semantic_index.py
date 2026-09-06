@@ -36,7 +36,13 @@ class SemanticIndex:
         self._ids: list[int] = []
         self._matrix: np.ndarray | None = None  # rows are L2-normalized
         self._loaded_at: float = 0.0
-        # Memoized project_2d() result, keyed on the _loaded_at stamp it was
+        # A single-assignment (matrix, ids, loaded_at) triple that refresh()
+        # publishes atomically. project_2d() runs in a worker thread (see the
+        # to_thread call in get_analytics_map) and reads this once, so a
+        # concurrent refresh() on the event loop can never pair an old matrix
+        # with a new id list.
+        self._snapshot: tuple[np.ndarray | None, list[int], float] = (None, [], 0.0)
+        # Memoized project_2d() result, keyed on the loaded_at stamp it was
         # computed from, so refresh() (and invalidate_index) drop it for free.
         self._projection: list[tuple[int, float, float]] | None = None
         self._projection_at: float = -1.0
@@ -66,6 +72,8 @@ class SemanticIndex:
             self._matrix = np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
         self._ids = ids
         self._loaded_at = time.monotonic()
+        # Publish the coherent triple last, in one assignment, for project_2d().
+        self._snapshot = (self._matrix, self._ids, self._loaded_at)
 
     async def search(
         self,
@@ -109,19 +117,21 @@ class SemanticIndex:
         points carries no structure, and the caller shows an empty state.
         The caller is responsible for freshness (see search()).
 
-        The result is memoized against self._loaded_at: the SVD is tens of
-        milliseconds at a few hundred rows and closer to a second at 10k, and
-        nothing about it changes until the index is reloaded.
+        The result is memoized against the snapshot's loaded_at stamp: the SVD
+        is tens of milliseconds at a few hundred rows and closer to a second at
+        10k, and nothing about it changes until the index is reloaded.
         """
-        if self._projection is not None and self._projection_at == self._loaded_at:
+        matrix, ids, loaded_at = self._snapshot
+
+        if self._projection is not None and self._projection_at == loaded_at:
             return self._projection
 
-        if self._matrix is None or self._matrix.shape[0] < 3:
+        if matrix is None or matrix.shape[0] < 3:
             self._projection = []
-            self._projection_at = self._loaded_at
+            self._projection_at = loaded_at
             return self._projection
 
-        centered = self._matrix - self._matrix.mean(axis=0, keepdims=True)
+        centered = matrix - matrix.mean(axis=0, keepdims=True)
         # SVD of the centered matrix is PCA. full_matrices=False keeps U at
         # (n, min(n, dim)); we take the first two components.
         u, s, _ = np.linalg.svd(centered, full_matrices=False)
@@ -138,9 +148,9 @@ class SemanticIndex:
         ys = scale(coords[:, 1])
         self._projection = [
             (int(bid), round(float(px), 4), round(float(py), 4))
-            for bid, px, py in zip(self._ids, xs, ys)
+            for bid, px, py in zip(ids, xs, ys)
         ]
-        self._projection_at = self._loaded_at
+        self._projection_at = loaded_at
         return self._projection
 
 
@@ -149,6 +159,10 @@ def invalidate_index(app_state) -> None:
     index = getattr(app_state, "semantic_index", None)
     if index is not None:
         index._loaded_at = 0.0
+        index._snapshot = (index._snapshot[0], index._snapshot[1], 0.0)
+        # Drop the projection memo outright so the 0.0 stamp can't alias a
+        # later cache entry keyed on the same value.
+        index._projection = None
 
 
 async def get_semantic_index(app_state) -> SemanticIndex:
