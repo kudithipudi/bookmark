@@ -574,3 +574,54 @@ async def get_analytics(request: Request):
         "top_tags": [{"tag": tag, "count": count} for tag, count in tag_counter.most_common(30)],
         "top_domains": [{"domain": domain, "count": count} for domain, count in domain_counter.most_common(10)],
     }
+
+
+@app.get("/api/analytics/map")
+async def get_analytics_map(request: Request):
+    """2D PCA projection of every bookmark embedding, for the analytics
+    'Collection map'. Lazy-loaded by the page after first paint, so the SVD
+    cost never blocks the KPI row."""
+    db = request.app.state.db
+    index = await get_semantic_index(request.app.state)
+    if index.is_stale:
+        await index.refresh(db)
+
+    coords = index.project_2d()
+    if not coords:
+        return {"points": [], "clusters": []}
+
+    position = {bid: (px, py) for bid, px, py in coords}
+    placeholders = ",".join("?" * len(position))
+    cursor = await db.execute(
+        f"SELECT id, title, url, tags FROM bookmarks WHERE id IN ({placeholders})",
+        list(position),
+    )
+
+    points = []
+    tag_counts = Counter()
+    for row in await cursor.fetchall():
+        px, py = position[row["id"]]
+        first_tag = next(
+            (t.strip() for t in (row["tags"] or "").split(",") if t.strip()),
+            None,
+        )
+        host = (urlparse(row["url"]).hostname or "").removeprefix("www.")
+        points.append(
+            {
+                "id": row["id"],
+                "x": px,
+                "y": py,
+                "title": row["title"] or row["url"],
+                "domain": host,
+                "url": row["url"],
+                "tag": first_tag,
+            }
+        )
+        if first_tag is not None:
+            tag_counts[first_tag] += 1
+
+    clusters = [
+        {"tag": tag, "count": count}
+        for tag, count in tag_counts.most_common(8)
+    ]
+    return {"points": points, "clusters": clusters}

@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import patch
+import numpy as np
 
 from app.config import settings
+from app.services.semantic_index import EMBEDDING_DIM
 
 
 async def test_index_page(client):
@@ -183,6 +185,61 @@ async def test_get_analytics(client, db):
     assert periods["2020-02"] == 0
     assert periods["2020-03"] == 1
     assert [pt["period"] for pt in data["timeline"]] == ["2020-01", "2020-02", "2020-03"]
+
+
+def _emb(*weights) -> bytes:
+    vec = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+    for i, w in enumerate(weights):
+        vec[i] = w
+    return vec.tobytes()
+
+
+async def _add(db, url, title, tags, embedding):
+    await db.execute(
+        "INSERT INTO bookmarks (url, title, tags, embedding) VALUES (?, ?, ?, ?)",
+        (url, title, tags, embedding),
+    )
+    await db.commit()
+
+
+async def test_analytics_map_empty(client):
+    resp = await client.get("/api/analytics/map")
+    assert resp.status_code == 200
+    assert resp.json() == {"points": [], "clusters": []}
+
+
+async def test_analytics_map_below_three_embeddings(client, db):
+    await _add(db, "https://a.com", "A", "x", _emb(1.0))
+    await _add(db, "https://b.com", "B", "y", _emb(0.0, 1.0))
+    resp = await client.get("/api/analytics/map")
+    assert resp.status_code == 200
+    assert resp.json() == {"points": [], "clusters": []}
+
+
+async def test_analytics_map_projects_points_and_clusters(client, db):
+    await _add(db, "https://a.com", "Alpha", "ml", _emb(1.0))
+    await _add(db, "https://www.b.com", "Beta", "ml", _emb(0.0, 1.0))
+    await _add(db, "https://c.com", "Gamma", "cooking", _emb(0.0, 0.0, 1.0))
+    await _add(db, "https://d.com", "Delta", "", _emb(0.3, 0.2, 0.1, 0.4))
+
+    resp = await client.get("/api/analytics/map")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(data["points"]) == 4
+    for point in data["points"]:
+        assert set(point) == {"id", "x", "y", "title", "domain", "url", "tag"}
+        assert 0.0 <= point["x"] <= 1.0
+        assert 0.0 <= point["y"] <= 1.0
+
+    by_title = {p["title"]: p for p in data["points"]}
+    assert by_title["Beta"]["domain"] == "b.com"  # www. stripped
+    assert by_title["Delta"]["tag"] is None       # empty tags -> None
+
+    assert data["clusters"] == [
+        {"tag": "ml", "count": 2},
+        {"tag": "cooking", "count": 1},
+    ]
 
 
 async def test_get_tags(client, db):
