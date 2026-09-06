@@ -64,9 +64,12 @@ New getter `constellation()` returning an array of
   banner width). Nearest match → smallest radius.
 - Angle: `base = -PI*0.85`; `step = 1.55*PI / max(n-1, 1)`;
   `angle = base + i*step + jitter(id)*0.28` where
-  `jitter(id) = (((id * 2654435761) >>> 0) % 1000) / 1000 - 0.5` (deterministic,
-  stable between renders). The `1.55*PI` sweep (not full `2*PI`) keeps a dead
-  sector at the bottom so stars never collide with the query caption.
+  `jitter(id) = ((Math.imul(id, 2654435761) >>> 0) % 1000) / 1000 - 0.5`
+  (deterministic, stable between renders; `Math.imul` keeps the hash exact for
+  ids past 2^24). The `1.55*PI` sweep (not full `2*PI`) spreads the stars over
+  an open arc rather than a closed ring. The query caption cannot collide with
+  them because it sits above the star band entirely (`y = 18`, band starts at
+  `CY - RY_MAX = 28`), not because of the sweep.
 - `dot = 2 + norm * 2.8`; `lineOpacity = 0.1 + norm * 0.32`.
 - `labelBelow = sin(angle) >= -0.2` (place the label under the dot unless the
   dot is in the upper arc near the caption).
