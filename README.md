@@ -8,7 +8,9 @@ metadata and AI tags, find things again with hybrid keyword + semantic search.
 
 ![The bookmark list with the tag sidebar and search](docs/screenshot.png)
 
-![The analytics page — totals, growth over time, top tags and domains, tag cloud](docs/screenshot-analytics.png)
+![Hybrid search — exact keyword matches, then a "Related by meaning" section with a constellation showing how close each result sits to the query](docs/screenshot-search.png)
+
+![The analytics page — growth over time, a semantic collection map, top tags and domains, tag cloud](docs/screenshot-analytics.png)
 
 ## What it is
 
@@ -18,12 +20,16 @@ organize everything with search and tag filtering. Search is hybrid: exact
 keyword matches rank first, then semantic nearest-neighbor matches found by
 meaning (local embeddings — "app for organizing my thoughts" finds Obsidian).
 Semantic-only hits are shown in their own "Related by meaning" section, each
-badged with a `NN% match` strength indicator. The tag sidebar is scoped to
-the current search, too — it only lists tags actually present among the
-matched bookmarks (exact + semantic), not the whole library.
+badged with a `NN% match` strength indicator and plotted on a small
+constellation — the query at the centre, each result a star pulled closer the
+stronger its match. The tag sidebar is scoped to the current search, too — it
+only lists tags actually present among the matched bookmarks (exact +
+semantic), not the whole library.
 
 A dedicated `/analytics` page visualizes the collection: bookmarks saved per
-month, top tags, top domains, and a tag word cloud.
+month, a **collection map** that projects every bookmark's embedding to 2D
+(PCA — no extra dependency) so topic clusters are visible at a glance, top
+tags, top domains, and a tag word cloud.
 
 Served at `https://lab.kudithipudi.org/bookmark/`.
 
@@ -199,6 +205,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |
 | `GET` | `/api/tags` | Tags with counts plus `"total"` bookmark count. Query param: `search` scopes the tags/counts to bookmarks matching that search (exact+semantic); `"total"` always reflects the whole library |
 | `GET` | `/api/analytics` | Collection stats: totals, a zero-filled monthly `timeline`, `top_tags`, `top_domains` |
+| `GET` | `/api/analytics/map` | 2D PCA projection of every bookmark embedding for the collection map (`points`, tag `clusters`); lazy-loaded by the analytics page |
 | `GET` | `/api/link-health` | Link-checker counts (`broken`, `review`, `checked`, `total`) plus the last sweep |
 | `GET` `POST` | `/api/admin/link-check` | Poll / start a bulk link-check sweep (requires `X-Admin-Password` if configured) |
 
