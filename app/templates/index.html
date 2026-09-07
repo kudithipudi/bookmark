@@ -6,7 +6,7 @@
     <title>Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.4">
+    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.5">
     <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.5">
     <script src="{{ prefix }}/static/app.js?v=1.0.11"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
@@ -90,7 +90,26 @@
                         <button @click="activeTag = ''; loadBookmarks(true)" class="ml-0.5 hover:text-indigo-900 text-base leading-none">&times;</button>
                     </span>
                 </template>
-                <span class="ml-auto text-xs text-slate-500" x-show="!loading" x-text="bookmarks.length + (bookmarks.length === 1 ? ' bookmark' : ' bookmarks')"></span>
+                <div class="ml-auto flex items-center gap-3 shrink-0">
+                    <!-- Mobile-only nav: the top-row Check links / Analytics
+                         controls are hidden below sm, so mirror them here. -->
+                    <button type="button" @click="openLinkCheck()" aria-label="Check links"
+                        class="sm:hidden inline-flex items-center text-slate-500 hover:text-indigo-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded">
+                        <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4 4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                        <span x-show="linkHealth.broken > 0" x-cloak
+                            class="ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-100 text-rose-700 text-[11px] font-semibold tabular-nums"
+                            x-text="linkHealth.broken"></span>
+                    </button>
+                    <a href="{{ prefix }}/analytics"
+                        class="sm:hidden inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-indigo-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded">
+                        <svg class="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V9m4 8V5m4 12v-6M4 21h16"/></svg>
+                        Analytics
+                    </a>
+                    <span class="text-xs text-slate-500 whitespace-nowrap" x-show="!loading">
+                        <span class="hidden sm:inline" x-text="bookmarks.length + (bookmarks.length === 1 ? ' bookmark' : ' bookmarks')"></span>
+                        <span class="sm:hidden" x-text="bookmarks.length" aria-label="bookmarks"></span>
+                    </span>
+                </div>
             </div>
         </div>
     </header>
