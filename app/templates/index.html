@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.6">
     <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.6">
-    <script defer src="{{ prefix }}/static/app.js?v=1.0.12"></script>
+    <script defer src="{{ prefix }}/static/app.js?v=1.0.13"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -341,15 +341,21 @@
                             {{ bookmark_card() }}
                         </template>
                     </div>
-                    <div x-show="hasMore && !loading" class="flex justify-center mt-4">
-                        <button type="button" @click="loadMore()" :disabled="loadingMore"
-                            class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition disabled:opacity-60 disabled:cursor-default">
-                            <span x-text="loadingMore ? 'Loading…' : 'Load more'"></span>
-                            <span class="text-slate-500" x-text="'· ' + exactBookmarks.length + ' of ' + totalMatches"></span>
-                        </button>
-                    </div>
                 </section>
             </template>
+
+            <!-- Infinite scroll: the IntersectionObserver in init() watches this
+                 sentinel and calls loadMore() as it nears the viewport. Kept
+                 outside the x-if above so the observed element stays stable
+                 across list re-renders. The button is the keyboard/retry
+                 fallback — clicking it does the same thing the scroll does. -->
+            <div x-ref="infiniteSentinel" x-show="hasMore && !loading" class="flex justify-center mt-4">
+                <button type="button" @click="loadError ? retryLoadMore() : loadMore()" :disabled="loadingMore"
+                    class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition disabled:opacity-60 disabled:cursor-default">
+                    <span x-text="loadingMore ? 'Loading more…' : (loadError ? 'Retry loading more' : 'Load more')"></span>
+                    <span class="text-slate-500" x-text="'· ' + exactBookmarks.length + ' of ' + totalMatches"></span>
+                </button>
+            </div>
 
             <!-- Related by meaning: embedding-based recommendations, ranked by match strength -->
             <template x-if="!loading && semanticBookmarks.length > 0">

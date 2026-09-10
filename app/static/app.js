@@ -15,6 +15,10 @@ document.addEventListener('alpine:init', () => {
         // so the existing results grid (gated on `!loading`) stays mounted
         // instead of flashing back to the skeleton on every page.
         loadingMore: false,
+        // A page append failed. Pauses the scroll-triggered auto-load (so the
+        // observer doesn't spin on a persistent error) until the user hits
+        // "Retry".
+        loadError: false,
         newUrl: '',
         searchQuery: '',
         activeTag: '',
@@ -49,8 +53,18 @@ document.addEventListener('alpine:init', () => {
             this.$watch('activeTag', v => { if (v) this.healthFilter = ''; });
             await this.loadBookmarks();
             this.loadLinkHealth();
+            // Infinite scroll: when the sentinel at the end of the list comes
+            // near the viewport, pull the next page. The 400px margin starts
+            // the fetch just before the user reaches the bottom. loadMore()'s
+            // own guards keep overlapping/exhausted/errored loads from firing.
+            this._pageObserver = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting) this.loadMore();
+            }, { rootMargin: '400px 0px' });
             // Deep-linked tag: bring its pill into view once rendered.
             this.$nextTick(() => {
+                if (this.$refs.infiniteSentinel) {
+                    this._pageObserver.observe(this.$refs.infiniteSentinel);
+                }
                 this.updateTagEdges();
                 if (this.activeTag) {
                     const el = this.$refs.tagStrip?.querySelector('[data-active="yes"]');
@@ -92,22 +106,33 @@ document.addEventListener('alpine:init', () => {
                 this.bookmarks = append ? [...this.bookmarks, ...rows] : rows;
                 this.hasMore = bmResp.headers.get('X-Has-More') === 'true';
                 this.totalMatches = parseInt(bmResp.headers.get('X-Total-Count') || '0', 10);
+                if (!append) this.loadError = false;
             } catch (e) {
                 // Roll back the optimistic bump so the next loadMore() re-requests
                 // this page instead of skipping it.
-                if (append) this.offset = Math.max(0, this.offset - this.pageSize);
+                if (append) {
+                    this.offset = Math.max(0, this.offset - this.pageSize);
+                    this.loadError = true;
+                }
                 this.showToast('Failed to load bookmarks. Try refreshing.', 'error');
             }
             this.loading = false;
             this.loadingMore = false;
         },
 
-        // "Load more": pull the next page and append it. Guarded so a
-        // double-click or Enter-repeat can't fire overlapping requests.
+        // Pull the next page and append it. Fired by the scroll sentinel and
+        // the manual button; guarded so overlapping, exhausted, or errored
+        // loads can't stack.
         loadMore() {
-            if (this.loading || this.loadingMore || !this.hasMore) return;
+            if (this.loading || this.loadingMore || this.loadError || !this.hasMore) return;
             this.offset += this.pageSize;
             this.loadBookmarks(false, true);
+        },
+
+        // "Retry" after a failed append: clear the error gate and try again.
+        retryLoadMore() {
+            this.loadError = false;
+            this.loadMore();
         },
 
         syncUrl() {
