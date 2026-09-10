@@ -7,6 +7,9 @@ from app.db import (
     SQL_CREATE_RATE_LIMIT_TABLE,
     SQL_CREATE_RATE_LIMIT_INDEX,
     SQL_CREATE_LINK_CHECK_RUNS_TABLE,
+    SQL_CREATE_BOOKMARKS_CREATED_AT_INDEX,
+    SQL_CREATE_FTS_TABLE,
+    SQL_CREATE_FTS_TRIGGERS,
 )
 from app.config import settings
 import aiosqlite
@@ -35,6 +38,10 @@ async def db():
     await conn.execute(SQL_CREATE_RATE_LIMIT_TABLE)
     await conn.execute(SQL_CREATE_RATE_LIMIT_INDEX)
     await conn.execute(SQL_CREATE_LINK_CHECK_RUNS_TABLE)
+    await conn.execute(SQL_CREATE_BOOKMARKS_CREATED_AT_INDEX)
+    await conn.execute(SQL_CREATE_FTS_TABLE)
+    for trigger_ddl in SQL_CREATE_FTS_TRIGGERS:
+        await conn.execute(trigger_ddl)
     await conn.commit()
     yield conn
     await conn.close()

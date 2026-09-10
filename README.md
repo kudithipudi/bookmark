@@ -96,12 +96,18 @@ API key.
 
 ### Semantic search
 
-Bookmarks are embedded at create/update time (title + description + tags,
-local ONNX model — no API cost) into a nullable `embedding` BLOB column.
-Search embeds the query, does brute-force cosine against all embeddings
-in memory (sub-millisecond at personal-library scale), and appends the
-nearest neighbors above `SEMANTIC_SCORE_THRESHOLD` after exact matches.
-Responses include `"match": "exact" | "semantic"` (+ `score` for semantic).
+Exact keyword matches come from an FTS5 full-text index (`bookmarks_fts`,
+external-content, trigger-synced) over title/url/description/tags — the raw
+query is tokenized, each token prefix-matched, joined with implicit AND;
+a malformed query falls back to `LIKE`. Bookmarks are also embedded at
+create/update time (title + description + tags, local ONNX model — no API
+cost) into a nullable `embedding` BLOB column. Search embeds the query,
+does brute-force cosine against all embeddings in memory (sub-millisecond at
+personal-library scale), and appends the nearest neighbors above
+`SEMANTIC_SCORE_THRESHOLD` after exact matches. Responses include
+`"match": "exact" | "semantic"` (+ `score` for semantic). The in-worker
+vector cache reloads when another worker commits (SQLite `PRAGMA
+data_version`), so cross-worker writes are visible immediately.
 
 For an existing database, backfill embeddings once after deploying:
 
@@ -181,6 +187,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `HF_HOME` | `/var/www/bookmark/.cache/huggingface` | huggingface_hub/xet scratch space; same sandbox rationale, exported to workers via `.env` |
 | `SEMANTIC_SCORE_THRESHOLD` | `0.55` | Minimum cosine similarity to include a semantic match |
 | `SEMANTIC_SEARCH_LIMIT` | `12` | Max semantic matches per search |
+| `SEMANTIC_CACHE_TTL_SECONDS` | `300.0` | Coarse fallback TTL for the in-worker vector cache; freshness is normally driven by SQLite `PRAGMA data_version` (picks up another worker's writes at once) |
 | `DELETE_PASSWORD` | (unset) | If set, deletes require `X-Delete-Password` header |
 | `ADMIN_PASSWORD` | (falls back to `DELETE_PASSWORD`) | If set, `/api/admin/*` (the bulk link checker) requires `X-Admin-Password` header |
 | `LINK_CHECK_CONCURRENCY` | `10` | Simultaneous outbound requests during a link-check sweep |
@@ -199,7 +206,7 @@ Set in `/var/www/bookmark/.env` (chmod 600, never committed); see
 | `GET` | `/` | Serves the frontend |
 | `GET` | `/analytics` | Serves the analytics/visualization page |
 | `GET` | `/health` | Health check — `{"status": "ok"}`, no auth/DB |
-| `GET` | `/api/bookmarks` | List bookmarks. Query params: `search` (hybrid exact+semantic), `tag` (exact), `status` (`broken` \| `review` \| `ok`, from the link checker) |
+| `GET` | `/api/bookmarks` | List bookmarks (bare JSON array). Query params: `search` (hybrid: FTS5 full-text exact matches + semantic), `tag` (exact), `status` (`broken` \| `review` \| `ok`, from the link checker), `limit` (default 60, clamped 1–200), `offset` (default 0). `LIMIT`/`OFFSET` apply to the exact-match set; semantic matches are appended only when `offset == 0`. Response headers: `X-Total-Count` (total exact/tag/status matches) and `X-Has-More` (`true`/`false`) for "Load more" |
 | `POST` | `/api/bookmarks` | Create bookmark. Body: `{"url": "..."}` |
 | `PUT` | `/api/bookmarks/{id}` | Update bookmark. Body: `{"url", "title", "description", "tags"}` (changing `url` clears its link-health verdict) |
 | `DELETE` | `/api/bookmarks/{id}` | Delete bookmark (requires `X-Delete-Password` if configured) |

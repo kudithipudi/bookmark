@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import threading
+from collections import OrderedDict
 
 import numpy as np
 
@@ -19,6 +20,19 @@ logger = logging.getLogger(__name__)
 _model = None
 _load_failed = False
 _lock = threading.Lock()
+
+# Small LRU of query-string -> embedding. A single free-text search fans out to
+# both /api/bookmarks and /api/tags, and each independently embeds the query;
+# without this the ONNX inference (the dominant cost in the search path) runs
+# twice per search, and every repeat of a recent search pays again. Only
+# populated on the event loop, so no lock is needed.
+_QUERY_CACHE_MAX = 256
+_query_cache: "OrderedDict[str, list[float]]" = OrderedDict()
+
+
+def reset_query_cache() -> None:
+    """Test hook: drop memoized query embeddings."""
+    _query_cache.clear()
 
 
 def _get_model():
@@ -93,10 +107,19 @@ async def embed_bookmark(
 
 
 async def embed_query(query: str) -> list[float] | None:
+    cached = _query_cache.get(query)
+    if cached is not None:
+        _query_cache.move_to_end(query)
+        return cached
     vectors = await embed_texts([query])
     if not vectors:
         return None
-    return vectors[0]
+    vector = vectors[0]
+    _query_cache[query] = vector
+    _query_cache.move_to_end(query)
+    if len(_query_cache) > _QUERY_CACHE_MAX:
+        _query_cache.popitem(last=False)
+    return vector
 
 
 async def warmup_embeddings() -> None:

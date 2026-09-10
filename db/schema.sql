@@ -2,7 +2,8 @@
 -- Applied idempotently on startup via app/db.py (CREATE TABLE IF NOT EXISTS
 -- plus PRAGMA-guarded ALTERs for columns added after the first release).
 -- Keep in sync with app/db.py:SQL_CREATE_TABLE / SQL_CREATE_RATE_LIMIT_TABLE /
--- SQL_CREATE_LINK_CHECK_RUNS_TABLE / _BOOKMARK_MIGRATIONS.
+-- SQL_CREATE_LINK_CHECK_RUNS_TABLE / SQL_CREATE_BOOKMARKS_CREATED_AT_INDEX /
+-- SQL_CREATE_FTS_TABLE / SQL_CREATE_FTS_TRIGGERS / _BOOKMARK_MIGRATIONS.
 
 CREATE TABLE IF NOT EXISTS bookmarks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,6 +25,34 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Backs the `ORDER BY created_at DESC` every bookmarks list read does.
+CREATE INDEX IF NOT EXISTS idx_bookmarks_created_at ON bookmarks(created_at DESC);
+
+-- Full-text search index over the bookmarks free-text columns (external
+-- content: terms only, row data read back from `bookmarks` by rowid), kept
+-- in sync by the triggers below. Replaces `LIKE '%term%'` scans in search.
+CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
+    title, url, description, tags,
+    content='bookmarks', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS bookmarks_fts_ai AFTER INSERT ON bookmarks BEGIN
+    INSERT INTO bookmarks_fts(rowid, title, url, description, tags)
+    VALUES (new.id, new.title, new.url, new.description, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS bookmarks_fts_ad AFTER DELETE ON bookmarks BEGIN
+    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, url, description, tags)
+    VALUES ('delete', old.id, old.title, old.url, old.description, old.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS bookmarks_fts_au AFTER UPDATE ON bookmarks BEGIN
+    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, url, description, tags)
+    VALUES ('delete', old.id, old.title, old.url, old.description, old.tags);
+    INSERT INTO bookmarks_fts(rowid, title, url, description, tags)
+    VALUES (new.id, new.title, new.url, new.description, new.tags);
+END;
 
 -- Sliding-window log for per-IP rate limiting on abusable routes.
 CREATE TABLE IF NOT EXISTS rate_limit_hits (

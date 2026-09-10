@@ -6,12 +6,13 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date
 from urllib.parse import urlparse
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.gzip import GZipMiddleware
 from app.config import settings
-from app.db import init_db, get_db, check_and_record_rate_limit
+from app.db import init_db, get_db, check_and_record_rate_limit, fts_match_query
 from app.models import BookmarkCreate, BookmarkUpdate, BookmarkResponse, TagCount
 from app import scraper
 from app.scraper import fetch_metadata
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 os.makedirs(settings.favicon_dir, exist_ok=True)
@@ -132,6 +134,17 @@ def _client_ip(request: Request) -> str:
     if real_ip:
         return real_ip
     return request.client.host if request.client else "unknown"
+
+
+# Every bookmarks column except the ~1.5KB `embedding` BLOB, which list
+# reads fetch for nothing (`_row_to_dict` discards it). SELECTing this
+# explicitly instead of `*` keeps the big column off multi-row reads.
+_BOOKMARK_COLUMNS = (
+    "id", "url", "title", "description", "favicon", "tags", "is_favorite",
+    "link_status", "link_status_code", "link_final_url", "link_checked_at",
+    "link_last_ok_at", "link_fail_count", "created_at", "updated_at",
+)
+_BOOKMARK_COLS_SQL = ", ".join(_BOOKMARK_COLUMNS)
 
 
 def _row_to_dict(row) -> dict:
@@ -222,24 +235,56 @@ async def create_bookmark(request: Request, bookmark: BookmarkCreate):
     return _row_to_dict(result)
 
 
+async def _fts_ids(db, search: str) -> list[int] | None:
+    """Row ids matching `search` via the FTS5 index, or None to signal the
+    caller should fall back to the old LIKE scan (unusable query, or an FTS
+    error)."""
+    match = fts_match_query(search)
+    if match is None:
+        return None
+    try:
+        cursor = await db.execute(
+            "SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?", (match,)
+        )
+        return [row[0] for row in await cursor.fetchall()]
+    except Exception:
+        logger.exception("FTS MATCH failed for %r; falling back to LIKE", search)
+        return None
+
+
 @app.get("/api/bookmarks")
 async def list_bookmarks(
     request: Request,
+    response: Response,
     search: str | None = None,
     tag: str | None = None,
     status: str | None = None,
+    limit: int = 60,
+    offset: int = 0,
 ):
     db = request.app.state.db
-    query = "SELECT * FROM bookmarks WHERE 1=1"
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    where = "WHERE 1=1"
     params = []
 
     if search:
-        query += " AND (title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?)"
-        like = f"%{search}%"
-        params.extend([like, like, like, like])
+        fts_ids = await _fts_ids(db, search)
+        if fts_ids is not None:
+            if fts_ids:
+                placeholders = ",".join("?" * len(fts_ids))
+                where += f" AND id IN ({placeholders})"
+                params.extend(fts_ids)
+            else:
+                where += " AND 0"
+        else:
+            where += " AND (title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?)"
+            like = f"%{search}%"
+            params.extend([like, like, like, like])
 
     if tag:
-        query += " AND (',' || tags || ',' LIKE ?)"
+        where += " AND (',' || tags || ',' LIKE ?)"
         params.append(f"%,{tag},%")
 
     # Link-health filter, populated by the bulk checker. "broken" is only the
@@ -248,20 +293,28 @@ async def list_bookmarks(
     if status:
         threshold = settings.link_check_broken_threshold
         if status == "broken":
-            query += " AND link_status = 'broken' AND COALESCE(link_fail_count, 0) >= ?"
+            where += " AND link_status = 'broken' AND COALESCE(link_fail_count, 0) >= ?"
             params.append(threshold)
         elif status == "review":
-            query += (
+            where += (
                 " AND (link_status IN ('uncertain', 'moved')"
                 " OR (link_status = 'broken' AND COALESCE(link_fail_count, 0) < ?))"
             )
             params.append(threshold)
         elif status == "ok":
-            query += " AND link_status = 'ok'"
+            where += " AND link_status = 'ok'"
 
-    query += " ORDER BY created_at DESC"
+    # Total keyword/tag/status matches, ignoring this page's limit/offset.
+    count_cursor = await db.execute(
+        f"SELECT COUNT(*) FROM bookmarks {where}", params
+    )
+    total = (await count_cursor.fetchone())[0]
 
-    cursor = await db.execute(query, params)
+    query = (
+        f"SELECT {_BOOKMARK_COLS_SQL} FROM bookmarks {where}"
+        " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    )
+    cursor = await db.execute(query, [*params, limit, offset])
     rows = await cursor.fetchall()
 
     results = []
@@ -273,10 +326,17 @@ async def list_bookmarks(
         results.append(bookmark)
         exact_ids.add(row["id"])
 
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Has-More"] = (
+        "true" if offset + len(results) < total else "false"
+    )
+
     # Semantic pass: nearest neighbors of the query embedding, appended after
     # exact matches so precise hits always rank first. Tag browsing is already
-    # an exact filter, so vectors only apply to free-text search.
-    if search and not tag and not status:
+    # an exact filter, so vectors only apply to free-text search. Only the
+    # first page carries semantic hits — later "Load more" pages skip the
+    # embed/index work entirely.
+    if offset == 0 and search and not tag and not status:
         try:
             query_vector = await embed_query(search)
             if query_vector is not None:
@@ -285,7 +345,7 @@ async def list_bookmarks(
                 if hits:
                     placeholders = ",".join("?" * len(hits))
                     cursor = await db.execute(
-                        f"SELECT * FROM bookmarks WHERE id IN ({placeholders})",
+                        f"SELECT {_BOOKMARK_COLS_SQL} FROM bookmarks WHERE id IN ({placeholders})",
                         [bookmark_id for bookmark_id, _ in hits],
                     )
                     by_id = {row["id"]: row for row in await cursor.fetchall()}
@@ -457,11 +517,15 @@ async def link_check_status(request: Request):
 async def _search_ids(request: Request, db, search: str) -> set[int]:
     """Ids of bookmarks matching `search`, by the same exact+semantic rules
     as /api/bookmarks (tag filtering is deliberately excluded — see there)."""
-    cursor = await db.execute(
-        "SELECT id FROM bookmarks WHERE title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?",
-        [f"%{search}%"] * 4,
-    )
-    ids = {row["id"] for row in await cursor.fetchall()}
+    fts_ids = await _fts_ids(db, search)
+    if fts_ids is not None:
+        ids = set(fts_ids)
+    else:
+        cursor = await db.execute(
+            "SELECT id FROM bookmarks WHERE title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?",
+            [f"%{search}%"] * 4,
+        )
+        ids = {row["id"] for row in await cursor.fetchall()}
 
     try:
         query_vector = await embed_query(search)
@@ -583,8 +647,9 @@ async def get_analytics_map(request: Request):
     cost never blocks the KPI row."""
     db = request.app.state.db
     index = await get_semantic_index(request.app.state)
-    if index.is_stale:
-        await index.refresh(db)
+    # Freshness includes the cross-worker check: never project a matrix that
+    # another worker's write has already made stale.
+    await index.ensure_fresh(db)
 
     # The SVD is CPU-bound (tens of ms at a few hundred bookmarks, ~1s at 10k),
     # so keep it off the event loop; SemanticIndex memoizes the result per load.

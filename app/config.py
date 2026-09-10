@@ -15,9 +15,11 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = ".cache/fastembed"
     semantic_score_threshold: float = 0.55
     semantic_search_limit: int = 12
-    # How long an in-worker vector cache may serve before re-reading the
-    # bookmarks table. Bounds staleness across gunicorn workers after writes.
-    semantic_cache_ttl_seconds: float = 30.0
+    # Coarse fallback TTL for the in-worker vector cache. Freshness is
+    # primarily driven by SQLite's PRAGMA data_version (which flips when
+    # another worker commits), so this only bounds staleness in the unlikely
+    # event that check is unavailable — hence the generous default.
+    semantic_cache_ttl_seconds: float = 300.0
     delete_password: str | None = None
     # Gates the admin-only routes (currently the bulk link checker). Falls
     # back to DELETE_PASSWORD so existing deployments that already set one
