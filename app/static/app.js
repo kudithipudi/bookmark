@@ -3,6 +3,18 @@ document.addEventListener('alpine:init', () => {
         bookmarks: [],
         tags: [],
         totalBookmarks: 0,
+        // "Load more" pagination for the exact-match list. pageSize mirrors
+        // the `limit` sent to api/bookmarks; offset advances by loadMore().
+        // hasMore / totalMatches come from the X-Has-More / X-Total-Count
+        // response headers on every fetch.
+        pageSize: 60,
+        offset: 0,
+        hasMore: false,
+        totalMatches: 0,
+        // Set only during a "Load more" append. Kept separate from `loading`
+        // so the existing results grid (gated on `!loading`) stays mounted
+        // instead of flashing back to the skeleton on every page.
+        loadingMore: false,
         newUrl: '',
         searchQuery: '',
         activeTag: '',
@@ -47,17 +59,25 @@ document.addEventListener('alpine:init', () => {
             });
         },
 
-        async loadBookmarks(scroll = false) {
+        async loadBookmarks(scroll = false, append = false) {
             // Filter changes (tag/search) can shrink a long, scrolled-down
             // list — snap back to the top so the new results aren't hidden
             // below the fold. Mutations (add/edit/delete) skip this so the
             // page doesn't jump away from where the user was working.
             if (scroll) window.scrollTo(0, 0);
-            this.loading = true;
+            // Append keeps the results grid on screen (loadingMore); a fresh
+            // load swaps in the skeleton (loading).
+            if (append) this.loadingMore = true;
+            else this.loading = true;
+            // Non-append fetches (any filter change or post-mutation reload)
+            // restart at page 0. Append keeps the offset loadMore() advanced.
+            if (!append) this.offset = 0;
             const params = new URLSearchParams();
             if (this.searchQuery) params.set('search', this.searchQuery);
             if (this.activeTag) params.set('tag', this.activeTag);
             if (this.healthFilter) params.set('status', this.healthFilter);
+            params.set('limit', this.pageSize);
+            params.set('offset', this.offset);
             this.syncUrl();
             try {
                 // Tag list is fetched alongside, scoped to the same search text,
@@ -66,11 +86,28 @@ document.addEventListener('alpine:init', () => {
                     fetch(`api/bookmarks?${params}`),
                     this.loadTags(),
                 ]);
-                this.bookmarks = await bmResp.json();
+                const rows = await bmResp.json();
+                // Semantic rows only arrive on page 0, so append pages carry
+                // exact matches only — concatenating is safe.
+                this.bookmarks = append ? [...this.bookmarks, ...rows] : rows;
+                this.hasMore = bmResp.headers.get('X-Has-More') === 'true';
+                this.totalMatches = parseInt(bmResp.headers.get('X-Total-Count') || '0', 10);
             } catch (e) {
+                // Roll back the optimistic bump so the next loadMore() re-requests
+                // this page instead of skipping it.
+                if (append) this.offset = Math.max(0, this.offset - this.pageSize);
                 this.showToast('Failed to load bookmarks. Try refreshing.', 'error');
             }
             this.loading = false;
+            this.loadingMore = false;
+        },
+
+        // "Load more": pull the next page and append it. Guarded so a
+        // double-click or Enter-repeat can't fire overlapping requests.
+        loadMore() {
+            if (this.loading || this.loadingMore || !this.hasMore) return;
+            this.offset += this.pageSize;
+            this.loadBookmarks(false, true);
         },
 
         syncUrl() {

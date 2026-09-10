@@ -6,9 +6,11 @@ bookmark collection (hundreds to low thousands of rows at 384 dims) that is
 sub-millisecond — the same "in-memory set of embeddings" approach the
 hypothetical-classifications writeup uses, without a vector DB.
 
-The cache re-reads the bookmarks table when older than
-`semantic_cache_ttl_seconds` (gunicorn workers don't share memory) or when a
-write in this worker calls invalidate().
+The cache re-reads the bookmarks table when SQLite's `PRAGMA data_version`
+shows another connection has committed (this is how one gunicorn worker
+notices another's writes — they don't share memory), when a write in this
+worker calls invalidate(), or, as a coarse fallback, when it is older than
+`semantic_cache_ttl_seconds`.
 """
 import logging
 import time
@@ -36,6 +38,11 @@ class SemanticIndex:
         self._ids: list[int] = []
         self._matrix: np.ndarray | None = None  # rows are L2-normalized
         self._loaded_at: float = 0.0
+        # SQLite PRAGMA data_version at the moment we last loaded. It changes
+        # only when *another* connection commits, so comparing it on each use
+        # is how this worker notices a sibling worker's write. None forces a
+        # refresh on the next check.
+        self._data_version: int | None = None
         # A single-assignment (matrix, ids, loaded_at) triple that refresh()
         # publishes atomically. project_2d() runs in a worker thread (see the
         # to_thread call in get_analytics_map) and reads this once, so a
@@ -53,6 +60,26 @@ class SemanticIndex:
             self._matrix is None
             or time.monotonic() - self._loaded_at > settings.semantic_cache_ttl_seconds
         )
+
+    @staticmethod
+    async def _read_data_version(db) -> int | None:
+        try:
+            cursor = await db.execute("PRAGMA data_version")
+            row = await cursor.fetchone()
+            return int(row[0]) if row is not None else None
+        except Exception:
+            return None
+
+    async def ensure_fresh(self, db) -> None:
+        """Refresh the cache if it is empty, TTL-expired, or another DB
+        connection has committed since we last loaded. Call this before
+        reading `_matrix` / `_snapshot` on any request path."""
+        if self.is_stale:
+            await self.refresh(db)
+            return
+        version = await self._read_data_version(db)
+        if version is not None and version != self._data_version:
+            await self.refresh(db)
 
     async def refresh(self, db) -> None:
         cursor = await db.execute("SELECT id, embedding FROM bookmarks WHERE embedding IS NOT NULL")
@@ -72,6 +99,9 @@ class SemanticIndex:
             self._matrix = np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
         self._ids = ids
         self._loaded_at = time.monotonic()
+        # Record the DB's data_version *after* the read, so a commit that
+        # lands between the SELECT and here just triggers one more refresh.
+        self._data_version = await self._read_data_version(db)
         # Publish the coherent triple last, in one assignment, for project_2d().
         self._snapshot = (self._matrix, self._ids, self._loaded_at)
 
@@ -83,8 +113,7 @@ class SemanticIndex:
         exclude_ids: set[int] | None = None,
     ) -> list[tuple[int, float]]:
         """Top semantic matches as (bookmark_id, cosine similarity), best first."""
-        if self.is_stale:
-            await self.refresh(db)
+        await self.ensure_fresh(db)
 
         query = np.asarray(query_vector, dtype=np.float32)
         norm = np.linalg.norm(query)
@@ -159,6 +188,9 @@ def invalidate_index(app_state) -> None:
     index = getattr(app_state, "semantic_index", None)
     if index is not None:
         index._loaded_at = 0.0
+        # Also drop the data_version stamp so the next ensure_fresh() reloads
+        # even if the TTL check somehow passes.
+        index._data_version = None
         index._snapshot = (index._snapshot[0], index._snapshot[1], 0.0)
         # Drop the projection memo outright so the 0.0 stamp can't alias a
         # later cache entry keyed on the same value.

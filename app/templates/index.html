@@ -6,9 +6,9 @@
     <title>Bookmarks</title>
     <link rel="icon" href="/favicon.ico">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.5">
-    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.5">
-    <script src="{{ prefix }}/static/app.js?v=1.0.11"></script>
+    <link rel="stylesheet" href="{{ prefix }}/static/css/app.css?v=1.0.6">
+    <link rel="stylesheet" href="{{ prefix }}/static/style.css?v=1.0.6">
+    <script defer src="{{ prefix }}/static/app.js?v=1.0.12"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"
         integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
         crossorigin="anonymous"></script>
@@ -340,6 +340,13 @@
                         <template x-for="bm in exactBookmarks" :key="bm.id">
                             {{ bookmark_card() }}
                         </template>
+                    </div>
+                    <div x-show="hasMore && !loading" class="flex justify-center mt-4">
+                        <button type="button" @click="loadMore()" :disabled="loadingMore"
+                            class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition disabled:opacity-60 disabled:cursor-default">
+                            <span x-text="loadingMore ? 'Loading…' : 'Load more'"></span>
+                            <span class="text-slate-500" x-text="'· ' + exactBookmarks.length + ' of ' + totalMatches"></span>
+                        </button>
                     </div>
                 </section>
             </template>
