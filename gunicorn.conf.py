@@ -1,7 +1,18 @@
 import os
 
+# Cap BLAS/OpenMP thread pools before numpy/onnxruntime get imported in the
+# worker process. Each worker embeds one query/bookmark at a time (personal-
+# library scale, brute-force cosine over a few hundred rows) — there is no
+# parallelism to gain, only idle threads and context-switch overhead on this
+# box's 2 shared vCPUs. Set here (master, pre-fork) so workers inherit it.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 bind = "unix:/var/www/bookmark/bookmark.sock"
-workers = 2
+# One worker: this is a self-hosted, single-user app (see README). A second
+# worker only duplicates the ONNX embedding model + in-memory vector cache
+# (~150-200MB each) for no real concurrency benefit at this traffic level.
+workers = 1
 worker_class = "uvicorn.workers.UvicornWorker"
 chdir = "/var/www/bookmark"
 accesslog = "app/logs/access.log"

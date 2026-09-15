@@ -52,6 +52,11 @@ def _get_model():
                     _model = TextEmbedding(
                         settings.embedding_model,
                         cache_dir=settings.embedding_cache_dir,
+                        # One text at a time (a single bookmark or search
+                        # query) — no batch to parallelize, so let onnxruntime
+                        # default to a full-core thread pool would only add
+                        # idle threads on this box's 2 shared vCPUs.
+                        threads=1,
                     )
                 except Exception as exc:
                     _load_failed = True
