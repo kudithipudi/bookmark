@@ -10,7 +10,7 @@ import logging
 import socket
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 
 from app.config import settings
 
@@ -66,16 +66,16 @@ def classify(status_code: int | None, original_url: str, final_url: str | None) 
     return "uncertain"
 
 
-async def check_url(client: httpx.AsyncClient, url: str) -> tuple[str, int | None, str | None]:
+async def check_url(client: httpx2.AsyncClient, url: str) -> tuple[str, int | None, str | None]:
     """Probe one URL. Returns (bucket, status_code_or_None, final_url_or_None)."""
     if not url.startswith(("http://", "https://")):
         return "uncertain", None, None
 
     try:
-        resp: httpx.Response | None = None
+        resp: httpx2.Response | None = None
         try:
             resp = await client.head(url)
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             resp = None
 
         # HEAD is widely misimplemented — fall back to a ranged GET when it's
@@ -88,15 +88,15 @@ async def check_url(client: httpx.AsyncClient, url: str) -> tuple[str, int | Non
         final_url = str(resp.url)
         return classify(code, url, final_url), code, final_url
 
-    except httpx.TimeoutException:
+    except httpx2.TimeoutException:
         return "uncertain", None, None
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         if _is_dns_failure(exc):
             return "broken", None, None
         # Connection refused / host unreachable is a strong dead signal, but
         # can be a transient outage — let the consecutive-failure threshold
         # decide whether it's really "broken".
-        bucket = "broken" if isinstance(exc, httpx.ConnectError) else "uncertain"
+        bucket = "broken" if isinstance(exc, httpx2.ConnectError) else "uncertain"
         return bucket, None, None
 
 
@@ -159,10 +159,10 @@ async def run_link_check(db, run_id: int) -> None:
         total = len(bookmarks)
 
         sem = asyncio.Semaphore(settings.link_check_concurrency)
-        timeout = httpx.Timeout(settings.link_check_timeout_seconds)
-        limits = httpx.Limits(max_connections=settings.link_check_concurrency + 5)
+        timeout = httpx2.Timeout(settings.link_check_timeout_seconds)
+        limits = httpx2.Limits(max_connections=settings.link_check_concurrency + 5)
 
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             follow_redirects=True,
             timeout=timeout,
             limits=limits,

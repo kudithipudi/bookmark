@@ -1,7 +1,7 @@
 import asyncio
 import socket
 
-import httpx
+import httpx2
 import pytest
 from unittest.mock import AsyncMock
 
@@ -32,9 +32,9 @@ def test_classify_dead_vs_uncertain():
 # --- check_url() -------------------------------------------------------------
 
 def _resp(status_code: int, url: str) -> AsyncMock:
-    r = AsyncMock(spec=httpx.Response)
+    r = AsyncMock(spec=httpx2.Response)
     r.status_code = status_code
-    r.url = httpx.URL(url)
+    r.url = httpx2.URL(url)
     return r
 
 
@@ -63,13 +63,13 @@ async def test_check_url_404_is_broken():
 
 async def test_check_url_timeout_is_uncertain():
     client = AsyncMock()
-    client.head = AsyncMock(side_effect=httpx.TimeoutException("slow"))
-    client.get = AsyncMock(side_effect=httpx.TimeoutException("slow"))
+    client.head = AsyncMock(side_effect=httpx2.TimeoutException("slow"))
+    client.get = AsyncMock(side_effect=httpx2.TimeoutException("slow"))
     assert await check_url(client, "https://a.com") == ("uncertain", None, None)
 
 
 async def test_check_url_dns_failure_is_broken():
-    err = httpx.ConnectError("no address")
+    err = httpx2.ConnectError("no address")
     err.__cause__ = socket.gaierror("Name or service not known")
     client = AsyncMock()
     client.head = AsyncMock(side_effect=err)

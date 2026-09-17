@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import logging
@@ -7,13 +7,13 @@ logger = logging.getLogger(__name__)
 
 # One pooled client for the worker's lifetime (standards §8) rather than a
 # fresh connection pool + TLS handshake on every bookmark save.
-_client: httpx.AsyncClient | None = None
+_client: httpx2.AsyncClient | None = None
 
 
-def _get_client() -> httpx.AsyncClient:
+def _get_client() -> httpx2.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(follow_redirects=True, timeout=10.0)
+        _client = httpx2.AsyncClient(follow_redirects=True, timeout=10.0)
     return _client
 
 
@@ -57,7 +57,7 @@ async def fetch_metadata(url: str) -> dict:
         else:
             result["favicon"] = urljoin(base_url, "/favicon.ico")
 
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.warning("HTTP error fetching metadata for %s: %s", url, exc)
     except Exception as exc:
         logger.exception("Unexpected error scraping %s: %s", url, exc)

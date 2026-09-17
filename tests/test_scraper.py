@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.scraper import fetch_metadata
-import httpx
+import httpx2
 
 
 SAMPLE_HTML = """
@@ -20,7 +20,7 @@ async def test_fetch_metadata_success():
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.text = SAMPLE_HTML
-    mock_response.url = httpx.URL("https://example.com/page")
+    mock_response.url = httpx2.URL("https://example.com/page")
 
     with patch("app.scraper._get_client") as MockClient:
         instance = AsyncMock()
@@ -39,7 +39,7 @@ async def test_fetch_metadata_success():
 async def test_fetch_metadata_timeout():
     with patch("app.scraper._get_client") as MockClient:
         instance = AsyncMock()
-        instance.get.side_effect = httpx.TimeoutException("timeout")
+        instance.get.side_effect = httpx2.TimeoutException("timeout")
         instance.__aenter__ = AsyncMock(return_value=instance)
         instance.__aexit__ = AsyncMock(return_value=False)
         MockClient.return_value = instance

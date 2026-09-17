@@ -3,7 +3,7 @@ import logging
 import os
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 
 from app.config import settings
 
@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 # One pooled client for the worker's lifetime (standards §8) rather than a
 # fresh connection pool + TLS handshake on every bookmark save.
-_client: httpx.AsyncClient | None = None
+_client: httpx2.AsyncClient | None = None
 
 
-def _get_client() -> httpx.AsyncClient:
+def _get_client() -> httpx2.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(follow_redirects=True, timeout=10.0)
+        _client = httpx2.AsyncClient(follow_redirects=True, timeout=10.0)
     return _client
 
 
@@ -82,7 +82,7 @@ async def save_favicon(bookmark_url: str, favicon_url: str | None) -> str | None
             f.write(resp.content)
         return f"/favicons/{filename}"
 
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         logger.warning("HTTP error fetching favicon %s: %s", favicon_url, exc)
         return None
     except Exception:

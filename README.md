@@ -40,7 +40,7 @@ Served at `https://lab.kudithipudi.org/bookmark/`.
 | Backend | FastAPI, Python 3.12 |
 | Database | SQLite (aiosqlite, WAL mode) at `data/bookmarks.db` |
 | Frontend | Jinja2, Alpine.js 3.14.8 (pinned CDN + SRI), Tailwind CSS (built with standalone CLI) |
-| Scraping | httpx, BeautifulSoup4 |
+| Scraping | httpx2, BeautifulSoup4 |
 | AI Tagging | OpenRouter (model configurable, default `google/gemini-2.5-flash-lite`) |
 | Semantic Search | fastembed (local ONNX, `BAAI/bge-small-en-v1.5`, 384-dim), brute-force cosine over an in-process vector cache |
 | App Server | gunicorn + uvicorn workers, unix socket `bookmark.sock` |

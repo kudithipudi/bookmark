@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-import httpx
+import httpx2
 
 from app.config import settings
 
@@ -17,7 +17,7 @@ async def test_add_bookmark_with_scraping_and_tagging(client, db):
     mock_http_response = AsyncMock()
     mock_http_response.status_code = 200
     mock_http_response.text = html
-    mock_http_response.url = httpx.URL("https://integration-test.com")
+    mock_http_response.url = httpx2.URL("https://integration-test.com")
 
     mock_ai_response = MagicMock()
     mock_ai_response.status_code = 200
