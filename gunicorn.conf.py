@@ -9,6 +9,10 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 bind = "unix:/var/www/bookmark/bookmark.sock"
+# gunicorn>=26 enables a control socket by default, which tries to create a
+# file under a path blocked by this unit's ProtectSystem=strict sandboxing
+# ("Read-only file system" on restart). Disable it; we don't use it.
+control_socket_disable = True
 # One worker: this is a self-hosted, single-user app (see README). A second
 # worker only duplicates the ONNX embedding model + in-memory vector cache
 # (~150-200MB each) for no real concurrency benefit at this traffic level.
