@@ -31,6 +31,7 @@ from app.services.linkcheck import (
     latest_run,
     run_link_check,
 )
+from app.static_assets import install_asset_global
 
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -69,6 +70,7 @@ os.makedirs(settings.favicon_dir, exist_ok=True)
 app.mount("/favicons", StaticFiles(directory=settings.favicon_dir), name="favicons")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["prefix"] = settings.root_path
+install_asset_global(templates, f"{settings.root_path}/static", "app/static")
 
 
 @app.get("/health")
