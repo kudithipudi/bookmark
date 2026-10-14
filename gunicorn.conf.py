@@ -17,7 +17,7 @@ control_socket_disable = True
 # worker only duplicates the ONNX embedding model + in-memory vector cache
 # (~150-200MB each) for no real concurrency benefit at this traffic level.
 workers = 1
-worker_class = "uvicorn.workers.UvicornWorker"
+worker_class = "app.access_log.AccessLogUvicornWorker"
 chdir = "/var/www/bookmark"
 accesslog = "app/logs/access.log"
 errorlog = "app/logs/app.log"
