@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     root_path: str = ""
+    public_origin: str = "https://lab.kudithipudi.org"  # absolute base for og:image / og:url
     openrouter_api_key: str | None = None
     openrouter_model: str = "google/gemini-2.5-flash-lite"
     llm_timeout_seconds: float = 15.0
