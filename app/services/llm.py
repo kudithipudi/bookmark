@@ -4,8 +4,8 @@ import time
 import httpx
 
 from app.config import settings
+from app.services.llm_route import chat_routes
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +29,16 @@ async def close_client() -> None:
 
 
 async def generate_tags(url: str, title: str | None, description: str | None) -> list[str]:
-    api_key = settings.openrouter_api_key
-    if not api_key:
+    model = settings.openrouter_model
+    routes = chat_routes(
+        model,
+        openrouter_key=settings.openrouter_api_key or "",
+        provider=settings.llm_provider,
+        straitly_key=settings.straitly_api_key,
+    )
+    if not routes:
         logger.debug("OPENROUTER_API_KEY not set; skipping AI tagging for %s", url)
         return []
-
-    model = settings.openrouter_model
     purpose = "tags"
 
     prompt = (
@@ -46,38 +50,50 @@ async def generate_tags(url: str, title: str | None, description: str | None) ->
 
     started = time.perf_counter()
     try:
-        resp = await _get_client().post(
-            OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "usage": {"include": True},
-            },
-        )
-
-        if resp.status_code != 200:
-            logger.error(
-                "LLM %s %s failed after %.1fs: status %d for %s: %s",
+        for i, route in enumerate(routes):
+            last = i + 1 == len(routes)
+            try:
+                resp = await _get_client().post(
+                    route.url,
+                    headers={
+                        "Authorization": f"Bearer {route.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": route.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "usage": {"include": True},
+                    },
+                )
+            except httpx.HTTPError as exc:
+                if last:
+                    raise
+                logger.warning("LLM %s %s via %s failed for %s: %s", purpose, model, route.name, url, exc)
+                continue
+            if resp.status_code == 200:
+                break
+            logger.log(
+                logging.ERROR if last else logging.WARNING,
+                "LLM %s %s via %s failed after %.1fs: status %d for %s: %s",
                 purpose,
                 model,
+                route.name,
                 time.perf_counter() - started,
                 resp.status_code,
                 url,
                 resp.text[:200],
             )
-            return []
+            if last:
+                return []
 
         data = resp.json()
         usage = data.get("usage") or {}
         reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
         logger.info(
-            "LLM %s %s %.1fs in=%s out=%s%s",
+            "LLM %s %s via %s %.1fs in=%s out=%s%s",
             purpose,
             model,
+            route.name,
             time.perf_counter() - started,
             usage.get("prompt_tokens", "?"),
             usage.get("completion_tokens", "?"),

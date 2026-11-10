@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     root_path: str = ""
     public_origin: str = "https://lab.kudithipudi.org"  # absolute base for og:image / og:url
     openrouter_api_key: str | None = None
+    # "straitly" sends models Straitly carries there first, falling back to
+    # OpenRouter (see app/services/llm_route.py). Anything else: OpenRouter only.
+    llm_provider: str = "openrouter"
+    straitly_api_key: str = ""
     openrouter_model: str = "google/gemini-2.5-flash-lite"
     llm_timeout_seconds: float = 15.0
     embedding_model: str = "BAAI/bge-small-en-v1.5"
